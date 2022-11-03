@@ -104,7 +104,6 @@ public class ChunkTest
     {
       foreach (var x in chunk)
       {
-        Console.WriteLine($"i: {i}\tA[i]: {array[i]}\tx: {x}");
         Assert.That(i,
                     Is.LessThan(array.Length));
         Assert.That(x,
