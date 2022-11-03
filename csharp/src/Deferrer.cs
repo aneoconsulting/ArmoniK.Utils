@@ -15,7 +15,8 @@
 // limitations under the License.
 
 
-using System.Diagnostics;
+using System;
+using System.Threading;
 
 using JetBrains.Annotations;
 
@@ -35,7 +36,7 @@ public sealed class Deferrer : IDisposable
   private Action? deferred_;
 
   /// <summary>
-  ///   Constructs a Disposable object that calls <paramref name="deferred"/> when disposed
+  ///   Constructs a Disposable object that calls <paramref name="deferred" /> when disposed
   /// </summary>
   /// <param name="deferred">Action to be called at Dispose</param>
   [PublicAPI]
@@ -50,7 +51,8 @@ public sealed class Deferrer : IDisposable
   {
     // Beware of race conditions:
     // https://learn.microsoft.com/en-us/dotnet/standard/security/security-and-race-conditions#race-conditions-in-the-dispose-method
-    var deferred = Interlocked.Exchange(ref deferred_, null);
+    var deferred = Interlocked.Exchange(ref deferred_,
+                                        null);
     if (deferred is null)
     {
       return;
@@ -65,7 +67,7 @@ public sealed class Deferrer : IDisposable
     => Dispose();
 
   /// <summary>
-  ///   Constructs a Disposable object that calls <paramref name="deferred"/> when disposed
+  ///   Constructs a Disposable object that calls <paramref name="deferred" /> when disposed
   /// </summary>
   /// <param name="deferred">Action to be called at Dispose time</param>
   /// <returns>Disposable object that calls deferred action when disposed</returns>
