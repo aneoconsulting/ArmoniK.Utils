@@ -28,7 +28,7 @@ public static class EnumerableExt
   /// <typeparam name="T">Type of the elements</typeparam>
   /// <returns>A list containing the same elements as the input enumerable</returns>
   [PublicAPI]
-  public static IList<T> AsList<T>(this IEnumerable<T>? enumerable)
+  public static IList<T> AsIList<T>(this IEnumerable<T>? enumerable)
   {
     if (enumerable is null)
     {
@@ -46,7 +46,7 @@ public static class EnumerableExt
   /// <typeparam name="T">Type of the elements</typeparam>
   /// <returns>A collection containing the same elements as the input enumerable</returns>
   [PublicAPI]
-  public static ICollection<T> AsCollection<T>(this IEnumerable<T>? enumerable)
+  public static ICollection<T> AsICollection<T>(this IEnumerable<T>? enumerable)
   {
     if (enumerable is null)
     {
@@ -83,14 +83,14 @@ public static class EnumerableExt
   public static IEnumerable<TSource[]> AsChunked<TSource>(this IEnumerable<TSource>? source,
                                                           int                        size)
   {
-    if (source is null)
-    {
-      return Array.Empty<TSource[]>();
-    }
-
     if (size < 1)
     {
       throw new ArgumentOutOfRangeException(nameof(size));
+    }
+
+    if (source is null)
+    {
+      return Enumerable.Empty<TSource[]>();
     }
 
     return Chunk.Iterator(source,
