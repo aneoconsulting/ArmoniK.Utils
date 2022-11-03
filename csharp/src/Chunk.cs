@@ -14,8 +14,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using System.Diagnostics;
-
 namespace ArmoniK.Utils;
 
 internal static class Chunk
@@ -41,7 +39,8 @@ internal static class Chunk
         {
           if (i > 0)
           {
-            Array.Resize(ref buffer, i);
+            Array.Resize(ref buffer,
+                         i);
             yield return buffer;
           }
 
@@ -51,6 +50,8 @@ internal static class Chunk
         buffer[i] =  e.Current;
         i         += 1;
       } while (i < size);
+
+      yield return buffer;
     }
   }
 }
