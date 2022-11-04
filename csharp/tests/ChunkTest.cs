@@ -25,14 +25,17 @@ namespace ArmoniK.Utils.Tests;
 
 public class ChunkTest
 {
-  public static IEnumerable ChunkArrayCases(int chunkSize)
+  private static IEnumerable ChunkArrayCases(IEnumerable<int> chunkSizes)
   {
-    for (var n = 0; n <= 4 * chunkSize; ++n)
+    foreach (var chunkSize in chunkSizes)
     {
-      yield return new TestCaseData(Enumerable.Range(0,
-                                                     n)
-                                              .ToArray(),
-                                    chunkSize).SetName($"int[{n}] chunked by {chunkSize}");
+      for (var n = 0; n <= 4 * chunkSize; ++n)
+      {
+        yield return new TestCaseData(Enumerable.Range(0,
+                                                       n)
+                                                .ToArray(),
+                                      chunkSize).SetArgDisplayNames($"int[{n}], {chunkSize}");
+      }
     }
   }
 
@@ -40,22 +43,13 @@ public class ChunkTest
   [TestCaseSource(nameof(ChunkArrayCases),
                   new object[]
                   {
-                    1,
-                  })]
-  [TestCaseSource(nameof(ChunkArrayCases),
-                  new object[]
-                  {
-                    2,
-                  })]
-  [TestCaseSource(nameof(ChunkArrayCases),
-                  new object[]
-                  {
-                    3,
-                  })]
-  [TestCaseSource(nameof(ChunkArrayCases),
-                  new object[]
-                  {
-                    4,
+                    new[]
+                    {
+                      1,
+                      2,
+                      3,
+                      4,
+                    },
                   })]
   public void CheckChunkSize(IEnumerable<int> enumerable,
                              int              chunkSize)
@@ -78,22 +72,13 @@ public class ChunkTest
   [TestCaseSource(nameof(ChunkArrayCases),
                   new object[]
                   {
-                    1,
-                  })]
-  [TestCaseSource(nameof(ChunkArrayCases),
-                  new object[]
-                  {
-                    2,
-                  })]
-  [TestCaseSource(nameof(ChunkArrayCases),
-                  new object[]
-                  {
-                    3,
-                  })]
-  [TestCaseSource(nameof(ChunkArrayCases),
-                  new object[]
-                  {
-                    4,
+                    new[]
+                    {
+                      1,
+                      2,
+                      3,
+                      4,
+                    },
                   })]
   public void ChunkShouldKeepOrder(int[] array,
                                    int   chunkSize)
