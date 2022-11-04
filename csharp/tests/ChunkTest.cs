@@ -61,7 +61,7 @@ public class ChunkTest
                              int              chunkSize)
   {
     var lastLength = chunkSize;
-    foreach (var chunk in enumerable.AsChunked(chunkSize))
+    foreach (var chunk in enumerable.ToChunks(chunkSize))
     {
       var length = chunk.Length;
       Assert.That(length,
@@ -100,7 +100,8 @@ public class ChunkTest
   {
     var i = 0;
 
-    foreach (var chunk in array.AsChunked(chunkSize).ToList())
+    foreach (var chunk in array.ToChunks(chunkSize)
+                               .ToList())
     {
       foreach (var x in chunk)
       {
@@ -120,7 +121,7 @@ public class ChunkTest
   [TestCase(4)]
   public void ChunkNullShouldSucceed(int chunkSize)
   {
-    var chunks = (null as IEnumerable<int>).AsChunked(chunkSize);
+    var chunks = (null as IEnumerable<int>).ToChunks(chunkSize);
     // ReSharper disable once PossibleMultipleEnumeration
     Assert.That(chunks,
                 Is.Not.Null);
@@ -149,6 +150,6 @@ public class ChunkTest
                        ? Enumerable.Range(0,
                                           (int)arraySize)
                        : null as IEnumerable<int>;
-    Assert.Throws<ArgumentOutOfRangeException>(() => enumerable.AsChunked(chunkSize));
+    Assert.Throws<ArgumentOutOfRangeException>(() => enumerable.ToChunks(chunkSize));
   }
 }

@@ -84,8 +84,8 @@ public static class EnumerableExt
   ///   <paramref name="size" /> is below 1.
   /// </exception>
   [PublicAPI]
-  public static IEnumerable<TSource[]> AsChunked<TSource>(this IEnumerable<TSource>? source,
-                                                          int                        size)
+  public static IEnumerable<TSource[]> ToChunks<TSource>(this IEnumerable<TSource>? source,
+                                                         int                        size)
   {
     if (size < 1)
     {
