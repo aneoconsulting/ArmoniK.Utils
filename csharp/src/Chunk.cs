@@ -65,6 +65,7 @@ internal static class Chunk
       }
 
       yield return buffer; // chunk is complete and a new storage is required
+      buffer = new TSource[size];
 
       for (bufferSize = 0; bufferSize < size && e.MoveNext(); ++bufferSize)
       {
