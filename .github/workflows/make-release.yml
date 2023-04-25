@@ -29,6 +29,7 @@ jobs:
       run: |
         export CURRENT_BRANCH=$(git describe --tags)
         echo "current-branch=$CURRENT_BRANCH" >> $GITHUB_OUTPUT
+        echo "current-branch=$CURRENT_BRANCH"
     - name: Generate Snapshot Version
       id: snapshot
       uses: codacy/git-version@2.7.1
@@ -49,6 +50,9 @@ jobs:
       run: |
         echo SNAPSHOT => ${{ steps.snapshot.outputs.version }} >> $GITHUB_STEP_SUMMARY
         echo RELASE   => ${{ steps.release.outputs.version }} >> $GITHUB_STEP_SUMMARY
+        echo SNAPSHOT => ${{ steps.snapshot.outputs.version }} 
+        echo RELASE   => ${{ steps.release.outputs.version }} 
+
     - name: Validate tag
       run : test ${{ steps.release.outputs.version }} == ${{ github.ref_name }}
 
