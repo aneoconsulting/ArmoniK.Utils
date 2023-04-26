@@ -27,7 +27,7 @@ jobs:
     - name: Compute branch for codacy
       id: rev
       run: |
-        export CURRENT_BRANCH=$(git describe --tags)
+        export CURRENT_BRANCH=0.1.0
         echo "current-branch=$CURRENT_BRANCH" >> $GITHUB_OUTPUT
         echo "current-branch=$CURRENT_BRANCH"
     - name: Generate Snapshot Version
