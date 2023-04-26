@@ -61,7 +61,7 @@ jobs:
     needs:
       - versionning
     env:
-      GENVERSION: ${{ needs.versionning.outputs.version }}
+      GENVERSION: ${{ needs.versionning.outputs.release }}
     steps:
     - name: Checkout
       uses: actions/checkout@v3
