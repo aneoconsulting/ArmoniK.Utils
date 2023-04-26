@@ -7,12 +7,11 @@ on:
   push:
     tags:
       - "[0-9]+.[0-9]+.[0-9]+"
-    branches:
-      - main 
 
 jobs:
  versionning:
     runs-on: ubuntu-latest
+    if: ${{ github.ref_name == 'refs/heads/main' }} 
     outputs:
       version: ${{ steps.snapshot.outputs.version }}
       release: ${{ steps.release.outputs.version }}
