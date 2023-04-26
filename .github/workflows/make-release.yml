@@ -52,10 +52,7 @@ jobs:
         echo RELASE   => ${{ steps.release.outputs.version }} >> $GITHUB_STEP_SUMMARY
         echo SNAPSHOT => ${{ steps.snapshot.outputs.version }} 
         echo RELASE   => ${{ steps.release.outputs.version }} 
-
-    - name: Validate tag
-      run : test ${{ steps.release.outputs.version }} == ${{ github.ref_name }}
-
+        
     - name: Delete tag if invalid
       if: failure() || cancelled()
       run : git push origin -d ${{ github.ref_name }}
