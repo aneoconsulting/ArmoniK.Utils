@@ -24,6 +24,7 @@ jobs:
     - name: Remove tag locally
       run: |
         git tag -d ${{ github.ref_name }}
+        git tag -a 0.0.1 -m "initialisation"
     - name: Compute branch for codacy
       id: rev
       run: |
