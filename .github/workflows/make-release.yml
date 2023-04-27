@@ -4,9 +4,11 @@ permissions:
   contents: write
 
 on:
-  push:
-    tags:
-      - "[0-9]+.[0-9]+.[0-9]+"
+  release:
+     types: [created]
+     branches: [main]
+     tags:
+       -  "[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
  versionning:
@@ -15,13 +17,6 @@ jobs:
       version: ${{ steps.snapshot.outputs.version }}
       release: ${{ steps.release.outputs.version }}
     steps:
-    - name: Get ref_name
-      id: get_ref_name
-      run: |
-          echo "ref_name=${{ github.base_ref }}"
-          echo "ref_name=${{ github.base_ref }}" >> $GITHUB_OUTPUT || exit 1
-          echo "ref_name=${{ github.ref_name }}"
-          echo "ref_name=${{ github.ref_name }}" >> $GITHUB_OUTPUT || exit 1
     - name: Checkout
       uses: actions/checkout@v3
       with:
