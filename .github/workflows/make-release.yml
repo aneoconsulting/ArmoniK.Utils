@@ -26,6 +26,7 @@ jobs:
 
     - name: Remove tag locally
       run: |
+        echo ${{ github.ref }}  ${{ github.ref_name }}
         git tag -d ${{ github.ref_name }}
     - name: Compute branch for codacy
       id: rev
