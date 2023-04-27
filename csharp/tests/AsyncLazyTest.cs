@@ -24,6 +24,9 @@ namespace ArmoniK.Utils.Tests;
 
 public class AsyncLazyTest
 {
+  ///////////////
+  // With type //
+  ///////////////
   [Test]
   [TestCase(false)]
   [TestCase(true)]
@@ -123,5 +126,95 @@ public class AsyncLazyTest
 
                               return f();
                             });
+  }
+
+  //////////////////
+  // Without type //
+  //////////////////
+  [Test]
+  [TestCase(false)]
+  [TestCase(true)]
+  public async Task AsyncLazyUntypedShouldWork(bool async)
+  {
+    var i = 0;
+
+    var lazy = CreateLazyUntyped(async,
+                                 0,
+                                 () => i += 1);
+
+    Assert.That(i,
+                Is.EqualTo(0));
+
+    await lazy;
+
+    Assert.That(i,
+                Is.EqualTo(1));
+
+    await lazy;
+
+    Assert.That(i,
+                Is.EqualTo(1));
+  }
+
+  [Test]
+  [TestCase(false)]
+  [TestCase(true)]
+  public async Task AsyncLazyUntypedValueShouldBeAsync(bool async)
+  {
+    var i = 0;
+
+    var lazy = CreateLazyUntyped(async,
+                                 100,
+                                 () => i += 1);
+
+    Assert.That(i,
+                Is.EqualTo(0));
+
+    var task = lazy.Value;
+
+    Assert.That(i,
+                Is.EqualTo(0));
+
+    await task.ConfigureAwait(false);
+
+    Assert.That(i,
+                Is.EqualTo(1));
+  }
+
+  private static AsyncLazy CreateLazyUntyped(bool   async,
+                                             int    delay,
+                                             Action f)
+  {
+    if (async)
+    {
+      return new AsyncLazy(async () =>
+                           {
+                             if (delay == 0)
+                             {
+                               await Task.Yield();
+                             }
+                             else
+                             {
+                               await Task.Delay(delay)
+                                         .ConfigureAwait(false);
+                             }
+
+                             f();
+                           });
+    }
+
+    return new AsyncLazy(() =>
+                         {
+                           if (delay == 0)
+                           {
+                             Thread.Yield();
+                           }
+                           else
+                           {
+                             Thread.Sleep(delay);
+                           }
+
+                           f();
+                         });
   }
 }

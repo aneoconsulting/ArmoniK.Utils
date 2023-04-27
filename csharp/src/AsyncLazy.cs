@@ -58,3 +58,39 @@ public class AsyncLazy<T> : Lazy<Task<T>>
   public TaskAwaiter<T> GetAwaiter()
     => Value.GetAwaiter();
 }
+
+/// <summary>
+///   Provides support for lazy asynchronous initialization of an external object.
+///   This is a thin wrapper over `Lazy<Task>` that can be awaited directly.
+/// </summary>
+[PublicAPI]
+public class AsyncLazy : Lazy<Task>
+{
+  /// <summary>
+  ///   Constructs an AsyncLazy from a synchronous factory
+  /// </summary>
+  /// <param name="valueFactory">Function that creates the value</param>
+  [PublicAPI]
+  public AsyncLazy(Action valueFactory)
+    : base(() => Task.Run(valueFactory))
+  {
+  }
+
+  /// <summary>
+  ///   Constructs an AsyncLazy from an asynchronous factory
+  /// </summary>
+  /// <param name="valueFactory">Asynchronous Function that creates the value</param>
+  [PublicAPI]
+  public AsyncLazy(Func<Task> valueFactory)
+    : base(valueFactory)
+  {
+  }
+
+  /// <summary>
+  ///   Gets an awaiter used to await this async lazy
+  /// </summary>
+  /// <returns>Awaiter instance</returns>
+  [PublicAPI]
+  public TaskAwaiter GetAwaiter()
+    => Value.GetAwaiter();
+}

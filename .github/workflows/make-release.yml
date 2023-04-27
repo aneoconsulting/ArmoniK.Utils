@@ -7,6 +7,8 @@ on:
   push:
     tags:
       - "[0-9]+.[0-9]+.[0-9]+"
+  branches:
+    only: main 
 
 jobs:
  versionning:
@@ -45,13 +47,8 @@ jobs:
         minor-identifier: "feat:"
         release-branch: ${{ steps.rev.outputs.current-branch }}
         dev-branch: main
-
-    - name: Put versions in step summary
-      run: |
-        echo SNAPSHOT => ${{ steps.snapshot.outputs.version }} >> $GITHUB_STEP_SUMMARY
-        echo RELASE   => ${{ steps.release.outputs.version }} >> $GITHUB_STEP_SUMMARY
-        echo SNAPSHOT => ${{ steps.snapshot.outputs.version }} 
-        echo RELASE   => ${{ steps.release.outputs.version }} 
+    - name: Validate tag
+      run : test ${{ steps.release.outputs.version }} == ${{ github.ref_name }}
         
     - name: Delete tag if invalid
       if: failure() || cancelled()
@@ -74,7 +71,6 @@ jobs:
       run: |
          cd csharp
          dotnet build ArmoniK.Utils.sln -c Release
-
     - name: Pack the package VERSION
       run: |
         cd csharp
