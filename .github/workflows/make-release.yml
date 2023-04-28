@@ -10,7 +10,7 @@ on:
 jobs:
  versionning:
     runs-on: ubuntu-latest
-    if: ${{ github.event.release.target_commitish == 'main' }} 
+    if: ${{ github.event.release.target_commitish == 'IA/TEST' }} 
     outputs:
       version: ${{ steps.snapshot.outputs.version }}
       release: ${{ steps.release.outputs.version }}
