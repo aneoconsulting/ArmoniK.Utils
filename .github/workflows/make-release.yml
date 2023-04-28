@@ -5,11 +5,8 @@ permissions:
 
 on:
   release:
-     types: [created]
      branches: 
        - main 
-     tags:
-       -  "[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
  versionning:
@@ -31,7 +28,7 @@ jobs:
     - name: Compute branch for codacy
       id: rev
       run: |
-        export CURRENT_BRANCH=0.1.0
+        export CURRENT_BRANCH=$(git describe --tags)
         echo "current-branch=$CURRENT_BRANCH" >> $GITHUB_OUTPUT
         echo "current-branch=$CURRENT_BRANCH"
     - name: Generate Snapshot Version
