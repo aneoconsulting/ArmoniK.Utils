@@ -10,6 +10,7 @@ on:
 jobs:
  versionning:
     runs-on: ubuntu-latest
+    if: ${{ github.event.release.target_commitish == 'IA/TEST' }} 
     outputs:
       version: ${{ steps.snapshot.outputs.version }}
       release: ${{ steps.release.outputs.version }}
@@ -22,6 +23,5 @@ jobs:
 
     - name: Remove tag locally
       run: |
-        echo "::set-env name=BRANCH_NAME::$(git rev-parse --abbrev-ref $(git rev-list -n 1 ${{ github.event.release.target_commitish }}))"
         echo  ${{ github.head_ref }}
         git tag -d ${{ github.ref_name }}
