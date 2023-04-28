@@ -5,8 +5,7 @@ permissions:
 
 on:
   release:
-     branches: 
-       - main 
+    types: [created]
 
 jobs:
  versionning:
@@ -23,59 +22,6 @@ jobs:
 
     - name: Remove tag locally
       run: |
+        echo "::set-env name=BRANCH_NAME::$(git rev-parse --abbrev-ref $(git rev-list -n 1 ${{ github.event.release.target_commitish }}))"
         echo  ${{ github.head_ref }}
         git tag -d ${{ github.ref_name }}
-    - name: Compute branch for codacy
-      id: rev
-      run: |
-        export CURRENT_BRANCH=$(git describe --tags)
-        echo "current-branch=$CURRENT_BRANCH" >> $GITHUB_OUTPUT
-        echo "current-branch=$CURRENT_BRANCH"
-    - name: Generate Snapshot Version
-      id: snapshot
-      uses: codacy/git-version@2.7.1
-      with:
-        minor-identifier: "feat:"
-        release-branch: ${{ github.ref_name }}-pre
-        dev-branch: ${{ steps.rev.outputs.current-branch }}
-
-    - name: Generate Release Version
-      id: release
-      uses: codacy/git-version@2.7.1
-      with:
-        minor-identifier: "feat:"
-        release-branch: ${{ steps.rev.outputs.current-branch }}
-        dev-branch: main
-    - name: Validate tag
-      run : test ${{ steps.release.outputs.version }} == ${{ github.ref_name }}
-        
-    - name: Delete tag if invalid
-      if: failure() || cancelled()
-      run : git push origin -d ${{ github.ref_name }}
- build:  
-    runs-on: ubuntu-latest
-    needs:
-      - versionning
-    env:
-      GENVERSION: ${{ needs.versionning.outputs.release }}
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-      with:
-        ref: ${{ github.ref }}
-        fetch-depth: 0
-        submodules: true
-
-    - name: Build the package
-      run: |
-         cd csharp
-         dotnet build ArmoniK.Utils.sln -c Release
-    - name: Pack the package VERSION
-      run: |
-        cd csharp
-        dotnet pack ArmoniK.Utils.sln -c Release -o /tmp/packages -p:Version=$GENVERSION
-        
-    - name: Push the package
-      run: |
-        cd csharp
-        find /tmp/packages -name 'ArmoniK*.nupkg' ! -name '*test*.nupkg' -exec echo dotnet nuget push /tmp/packages/ArmoniK.Utils.*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate --no-symbols \;
