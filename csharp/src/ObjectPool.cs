@@ -23,6 +23,54 @@ using JetBrains.Annotations;
 
 namespace ArmoniK.Utils;
 
+/// <summary>
+///   Class to manage a pool of objects of type <typeparamref name="T" />
+/// </summary>
+/// <remarks>
+///   <para>
+///     An ObjectPool is useful when you want to reuse objects that are not used anymore.
+///     This object pool can be configured to have a limit on the number of objects created at the same time.
+///   </para>
+///   <para>
+///     When the pool is empty, objects are created from a function specified at the construction of the pool.
+///     Created objects can then be reused once they are released.
+///   </para>
+///   <para>
+///     When an object is released, a "return function" is called to check if the object is still valid.
+///     If the object is still valid, it is returned to the pool and could be reused later on.
+///     If the object is not valid, it is disposed (if disposable) and <i>not</i> returned to the pool.
+///   </para>
+///   <para>
+///     When the pool is disposed, all objects in the pool are disposed (if disposable).
+///   </para>
+/// </remarks>
+/// <example>
+///   <para>
+///     <code>
+///       // Create a client synchronously and limit the pool to 10 clients.
+///       // Acquire an object and use it in a callback.
+///       await using var pool = new ObjectPool&lt;Client&gt;(10,
+///                                                     _ => ValueTask.FromResult(new Client()));
+///       /* ... */
+///       var result = await pool.CallWithAsync(client => client.DoSomething());
+///     </code>
+///   </para>
+///   <para>
+///     <code>
+///       // Create a client <i>asynchronously</i> without object limit.
+///       // Verify that a client is still valid before returning it to the pool.
+///       // Acquire an object with a Guard.
+///       await using var pool = new ObjectPool&lt;AsyncClient&gt;(-1,
+///                                                          async ct => await AsyncClient.CreateAsync(ct),
+///                                                          async (client, ct) => await client.PingAsync(ct));
+///       /* ... */
+///       await using var client = await pool.GetAsync(cancellationToken);
+///
+///       var result = client.Value.DoSomething();
+///     </code>
+///   </para>
+/// </example>
+/// <typeparam name="T">Type of the objects in the pool</typeparam>
 public class ObjectPool<T> : IDisposable, IAsyncDisposable
 {
   private readonly ConcurrentBag<T>                             bag_;
@@ -30,17 +78,34 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   private readonly Func<T, CancellationToken, ValueTask<bool>>? returnFunc_;
   private readonly SemaphoreSlim                                sem_;
 
+  /// <summary>
+  ///   Create a new ObjectPool that can have at most <paramref name="max" /> objects created at the same time.
+  /// </summary>
+  /// <remarks>
+  ///   If <paramref name="max" /> is negative, no limit is enforced.
+  /// </remarks>
+  /// <param name="max">Maximum number of objects</param>
+  /// <param name="createFunc">Function to call to create new objects</param>
+  /// <param name="returnFunc">Function to call to check if an object is still valid and can be returned to the pool</param>
   [PublicAPI]
-  public ObjectPool(int?                                         max,
+  public ObjectPool(int                                          max,
                     Func<CancellationToken, ValueTask<T>>        createFunc,
                     Func<T, CancellationToken, ValueTask<bool>>? returnFunc = null)
   {
+    max = max switch
+          {
+            < 0 => int.MaxValue,
+            0   => throw new ArgumentOutOfRangeException($"{nameof(max)} cannot be zero"),
+            _   => max,
+          };
+
     bag_        = new ConcurrentBag<T>();
-    sem_        = new SemaphoreSlim(max ?? int.MaxValue);
+    sem_        = new SemaphoreSlim(max);
     createFunc_ = createFunc;
     returnFunc_ = returnFunc;
   }
 
+  /// <inheritdoc />
   public async ValueTask DisposeAsync()
   {
     while (bag_.TryTake(out var obj))
@@ -53,6 +118,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     GC.SuppressFinalize(this);
   }
 
+  /// <inheritdoc />
   public void Dispose()
   {
     while (bag_.TryTake(out var obj))
@@ -67,18 +133,21 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   ~ObjectPool()
     => Dispose();
 
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  /// </summary>
+  /// <remarks>
+  ///   This method has been marked private to avoid missing the call to <see cref="Release" />
+  /// </remarks>
+  /// <param name="cancellationToken">Cancellation token used for stopping the acquire</param>
+  /// <returns>An object that has been acquired</returns>
   private async ValueTask<T> Acquire(CancellationToken cancellationToken = default)
   {
-    var bag = bag_;
-    if (bag is null)
-    {
-      throw new ObjectDisposedException("ObjectPool has been disposed");
-    }
-
     await sem_.WaitAsync(cancellationToken)
               .ConfigureAwait(false);
 
-    if (bag.TryTake(out var res))
+    if (bag_.TryTake(out var res))
     {
       return res;
     }
@@ -87,27 +156,33 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
              .ConfigureAwait(false);
   }
 
+  /// <summary>
+  ///   Release an object to the pool. If the object is still valid, another consumer can reuse the object.
+  /// </summary>
+  /// <remarks>
+  ///   This method has been marked private to avoid missing to call it.
+  /// </remarks>
+  /// <param name="obj">Object to release to the pool</param>
+  /// <param name="cancellationToken">Cancellation token used for stopping the release</param>
   private async ValueTask Release(T                 obj,
                                   CancellationToken cancellationToken = default)
   {
-    var bag = bag_;
-    if (bag is null)
-    {
-      throw new ObjectDisposedException("ObjectPool has been disposed");
-    }
-
     var isValid = returnFunc_ is null || await returnFunc_(obj,
                                                            cancellationToken)
                     .ConfigureAwait(false);
 
     if (isValid)
     {
-      bag.Add(obj);
+      bag_.Add(obj);
     }
 
     sem_.Release();
   }
 
+  /// <summary>
+  ///   Dispose a single object, if it is disposable
+  /// </summary>
+  /// <param name="obj">Object to dispose</param>
   private static void DisposeOne(T obj)
   {
     switch (obj)
@@ -123,6 +198,10 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     }
   }
 
+  /// <summary>
+  ///   Asynchronously Dispose a single object, if it is disposable
+  /// </summary>
+  /// <param name="obj">Object to dispose</param>
   private static async ValueTask DisposeOneAsync(T obj)
   {
     switch (obj)
@@ -137,11 +216,28 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     }
   }
 
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   The method returns a guard that contains the acquired object, and that automatically release the object when
+  ///   disposed.
+  /// </summary>
+  /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
+  /// <returns>A guard that contains the acquired object.</returns>
   [PublicAPI]
   public ValueTask<Guard> GetAsync(CancellationToken cancellationToken = default)
     => Guard.Create(this,
                     cancellationToken);
 
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   Once the object has been created, <paramref name="f" /> is called with the acquired object.
+  /// </summary>
+  /// <param name="f">Function to call with the acquired object</param>
+  /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
+  /// <typeparam name="TOut">Return type of <paramref name="f" /></typeparam>
+  /// <returns>Return value of <paramref name="f" /></returns>
   [PublicAPI]
   public async ValueTask<TOut> CallWithAsync<TOut>(Func<T, TOut>     f,
                                                    CancellationToken cancellationToken = default)
@@ -152,6 +248,15 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     return f(guard.Value);
   }
 
+
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   Once the object has been created, <paramref name="f" /> is called with the acquired object.
+  /// </summary>
+  /// <param name="f">Function to call with the acquired object</param>
+  /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
+  /// <returns>Task representing the completion of the call</returns>
   [PublicAPI]
   public async ValueTask CallWithAsync(Action<T>         f,
                                        CancellationToken cancellationToken = default)
@@ -162,7 +267,15 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     f(guard.Value);
   }
 
-
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   Once the object has been created, <paramref name="f" /> is called with the acquired object.
+  /// </summary>
+  /// <param name="f">Function to call with the acquired object</param>
+  /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
+  /// <typeparam name="TOut">Return type of <paramref name="f" /></typeparam>
+  /// <returns>Return value of <paramref name="f" /></returns>
   [PublicAPI]
   public async ValueTask<TOut> CallWithAsync<TOut>(Func<T, ValueTask<TOut>> f,
                                                    CancellationToken        cancellationToken = default)
@@ -174,6 +287,14 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
              .ConfigureAwait(false);
   }
 
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   Once the object has been created, <paramref name="f" /> is called with the acquired object.
+  /// </summary>
+  /// <param name="f">Function to call with the acquired object</param>
+  /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
+  /// <returns>Task representing the completion of the call</returns>
   [PublicAPI]
   public async ValueTask CallWithAsync(Func<T, ValueTask> f,
                                        CancellationToken  cancellationToken = default)
@@ -185,6 +306,10 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
       .ConfigureAwait(false);
   }
 
+  /// <summary>
+  ///   Class managing the acquire and release of an object from the pool.
+  ///   The object is acquired when the guard is created, and released when the guard is disposed.
+  /// </summary>
   public sealed class Guard : IDisposable, IAsyncDisposable
   {
     private ObjectPool<T>? pool_;
@@ -196,8 +321,12 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
       Value = obj;
     }
 
+    /// <summary>
+    ///   Acquired object
+    /// </summary>
     public T Value { get; }
 
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
       var pool = Interlocked.Exchange(ref pool_,
@@ -210,6 +339,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
       }
     }
 
+    /// <inheritdoc />
     public void Dispose()
       => DisposeAsync()
          .GetAwaiter()
@@ -218,6 +348,12 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     ~Guard()
       => Dispose();
 
+    /// <summary>
+    ///   Acquire a new object from the pool, and create the guard managing it.
+    /// </summary>
+    /// <param name="pool">ObjectPool to acquire the object from</param>
+    /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
+    /// <returns>Newly created guard</returns>
     [PublicAPI]
     internal static async ValueTask<Guard> Create(ObjectPool<T>     pool,
                                                   CancellationToken cancellationToken)
@@ -229,6 +365,11 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
                        obj);
     }
 
+    /// <summary>
+    ///   Get the acquired object
+    /// </summary>
+    /// <param name="guard">Guard to get the object from</param>
+    /// <returns>The acquired object</returns>
     [PublicAPI]
     public static implicit operator T(Guard guard)
       => guard.Value;
