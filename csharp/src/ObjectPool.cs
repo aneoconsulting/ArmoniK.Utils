@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -42,6 +43,9 @@ namespace ArmoniK.Utils;
 ///   </para>
 ///   <para>
 ///     When the pool is disposed, all objects in the pool are disposed (if disposable).
+///   </para>
+///   <para>
+///     All objects must be released to the pool before disposing the pool.
 ///   </para>
 /// </remarks>
 /// <example>
@@ -75,6 +79,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
 {
   private readonly ConcurrentBag<T>                             bag_;
   private readonly Func<CancellationToken, ValueTask<T>>        createFunc_;
+  private readonly int                                          max_;
   private readonly Func<T, CancellationToken, ValueTask<bool>>? returnFunc_;
   private readonly SemaphoreSlim                                sem_;
 
@@ -101,6 +106,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
 
     bag_        = new ConcurrentBag<T>();
     sem_        = new SemaphoreSlim(max);
+    max_        = max;
     createFunc_ = createFunc;
     returnFunc_ = returnFunc;
   }
@@ -108,6 +114,8 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <inheritdoc />
   public async ValueTask DisposeAsync()
   {
+    Debug.Assert(sem_.CurrentCount == max_,
+                 "Some objects are still in use when disposing the object pool");
     while (bag_.TryTake(out var obj))
     {
       await DisposeOneAsync(obj)

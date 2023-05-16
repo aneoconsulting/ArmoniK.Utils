@@ -300,8 +300,8 @@ public class ObjectPoolTest
     Assert.ThrowsAsync<ApplicationException>(() => pool.GetAsync()
                                                        .AsTask());
 
-    var obj = await pool.GetAsync(TimeSpan.Zero)
-                        .ConfigureAwait(false);
+    await using var obj = await pool.GetAsync(TimeSpan.Zero)
+                                    .ConfigureAwait(false);
 
     Assert.That(obj.Value,
                 Is.EqualTo(0));
