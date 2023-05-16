@@ -140,20 +140,35 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <remarks>
   ///   This method has been marked private to avoid missing the call to <see cref="Release" />
   /// </remarks>
+  /// <param name="timeout">Time to wait for the acquire</param>
   /// <param name="cancellationToken">Cancellation token used for stopping the acquire</param>
+  /// <exception cref="TimeoutException">Exception thrown when the acquire time out</exception>
   /// <returns>An object that has been acquired</returns>
-  private async ValueTask<T> Acquire(CancellationToken cancellationToken = default)
+  private async ValueTask<T> Acquire(TimeSpan          timeout,
+                                     CancellationToken cancellationToken = default)
   {
-    await sem_.WaitAsync(cancellationToken)
-              .ConfigureAwait(false);
-
-    if (bag_.TryTake(out var res))
+    if (!await sem_.WaitAsync(timeout,
+                              cancellationToken)
+                   .ConfigureAwait(false))
     {
-      return res;
+      throw new TimeoutException($"Timeout exceeded when acquiring object {nameof(T)}");
     }
 
-    return await createFunc_(cancellationToken)
-             .ConfigureAwait(false);
+    try
+    {
+      if (bag_.TryTake(out var res))
+      {
+        return res;
+      }
+
+      return await createFunc_(cancellationToken)
+               .ConfigureAwait(false);
+    }
+    catch
+    {
+      sem_.Release();
+      throw;
+    }
   }
 
   /// <summary>
@@ -167,16 +182,26 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   private async ValueTask Release(T                 obj,
                                   CancellationToken cancellationToken = default)
   {
-    var isValid = returnFunc_ is null || await returnFunc_(obj,
-                                                           cancellationToken)
-                    .ConfigureAwait(false);
-
-    if (isValid)
+    try
     {
-      bag_.Add(obj);
-    }
+      var isValid = returnFunc_ is null || await returnFunc_(obj,
+                                                             cancellationToken)
+                      .ConfigureAwait(false);
 
-    sem_.Release();
+      if (isValid)
+      {
+        bag_.Add(obj);
+      }
+      else
+      {
+        await DisposeOneAsync(obj)
+          .ConfigureAwait(false);
+      }
+    }
+    finally
+    {
+      sem_.Release();
+    }
   }
 
   /// <summary>
@@ -222,12 +247,36 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   ///   The method returns a guard that contains the acquired object, and that automatically release the object when
   ///   disposed.
   /// </summary>
+  /// <remarks>
+  ///   If the new object could not be acquired within the allowed time frame, a <see cref="TimeoutException" /> is thrown.
+  ///   If an exception is thrown during the creation of the object, acquire is cancelled (semaphore is released).
+  /// </remarks>
+  /// <param name="timeout">Time to wait for the acquire</param>
+  /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
+  /// <exception cref="TimeoutException">Exception thrown when the acquire time out</exception>
+  /// <returns>A guard that contains the acquired object.</returns>
+  [PublicAPI]
+  public ValueTask<Guard> GetAsync(TimeSpan          timeout,
+                                   CancellationToken cancellationToken = default)
+    => Guard.Create(this,
+                    timeout,
+                    cancellationToken);
+
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   The method returns a guard that contains the acquired object, and that automatically release the object when
+  ///   disposed.
+  /// </summary>
+  /// <remarks>
+  ///   If an exception is thrown during the creation of the object, acquire is cancelled (semaphore is released).
+  /// </remarks>
   /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
   /// <returns>A guard that contains the acquired object.</returns>
   [PublicAPI]
   public ValueTask<Guard> GetAsync(CancellationToken cancellationToken = default)
-    => Guard.Create(this,
-                    cancellationToken);
+    => GetAsync(Timeout.InfiniteTimeSpan,
+                cancellationToken);
 
   /// <summary>
   ///   Acquire a new object from the pool, creating it if there is no object in the pool.
@@ -352,13 +401,17 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     ///   Acquire a new object from the pool, and create the guard managing it.
     /// </summary>
     /// <param name="pool">ObjectPool to acquire the object from</param>
+    /// <param name="timeout">Time to wait for the acquire</param>
     /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
+    /// <exception cref="TimeoutException">Exception thrown when the acquire time out</exception>
     /// <returns>Newly created guard</returns>
     [PublicAPI]
     internal static async ValueTask<Guard> Create(ObjectPool<T>     pool,
+                                                  TimeSpan          timeout,
                                                   CancellationToken cancellationToken)
     {
-      var obj = await pool.Acquire(cancellationToken)
+      var obj = await pool.Acquire(timeout,
+                                   cancellationToken)
                           .ConfigureAwait(false);
 
       return new Guard(pool,
