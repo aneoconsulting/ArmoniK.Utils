@@ -346,6 +346,135 @@ public class ObjectPoolTest
              .ConfigureAwait(false);
   }
 
+  [Test]
+  public async Task GuardFinalizer()
+  {
+    var nbCreated  = 0;
+    var nbDisposed = 0;
+    await using var pool = new ObjectPool<object>(1,
+                                                  _ =>
+                                                  {
+                                                    nbCreated += 1;
+                                                    return new ValueTask<object>(new AsyncDisposeAction(() => nbDisposed += 1));
+                                                  },
+                                                  (_,
+                                                   _) => new ValueTask<bool>(false));
+
+    var guardWeakReference = await CallWithOwnContext(async () =>
+                                                      {
+                                                        var guard = await pool.GetAsync();
+
+                                                        GC.Collect();
+                                                        GC.WaitForPendingFinalizers();
+
+                                                        Assert.That(nbCreated,
+                                                                    Is.EqualTo(1));
+                                                        Assert.That(nbDisposed,
+                                                                    Is.Zero);
+
+                                                        return new WeakReference(guard);
+                                                      });
+
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+
+    Assert.That(guardWeakReference.IsAlive,
+                Is.False);
+    Assert.That(nbDisposed,
+                Is.EqualTo(1));
+  }
+
+  [Test]
+  public async Task PoolFinalizer()
+  {
+    var nbCreated  = 0;
+    var nbDisposed = 0;
+
+    var poolWeakReference = await CallWithOwnContext(async () =>
+                                                     {
+                                                       var pool = new ObjectPool<object>(1,
+                                                                                         _ =>
+                                                                                         {
+                                                                                           nbCreated += 1;
+                                                                                           return new ValueTask<object>(new Deferrer(() => nbDisposed += 1));
+                                                                                         });
+
+                                                       await using (var guard = await pool.GetAsync())
+                                                       {
+                                                       }
+
+                                                       GC.Collect();
+                                                       GC.WaitForPendingFinalizers();
+
+                                                       Assert.That(nbCreated,
+                                                                   Is.EqualTo(1));
+                                                       Assert.That(nbDisposed,
+                                                                   Is.Zero);
+
+                                                       return new WeakReference(pool);
+                                                     });
+
+
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+
+    Assert.That(poolWeakReference.IsAlive,
+                Is.False);
+
+    // Why a 2nd collect is necessary here?
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+
+    Assert.That(nbDisposed,
+                Is.EqualTo(1));
+  }
+
+  [Test]
+  public async Task Finalizer()
+  {
+    var nbCreated  = 0;
+    var nbDisposed = 0;
+
+    var (poolWeakReference, guardWeakReference) = await CallWithOwnContext(async () =>
+                                                                           {
+                                                                             var pool = new ObjectPool<object>(1,
+                                                                                                               _ =>
+                                                                                                               {
+                                                                                                                 nbCreated += 1;
+                                                                                                                 return new
+                                                                                                                   ValueTask<object>(new Deferrer(() => nbDisposed +=
+                                                                                                                                                          1));
+                                                                                                               });
+
+                                                                             var guard = await pool.GetAsync();
+
+                                                                             GC.Collect();
+                                                                             GC.WaitForPendingFinalizers();
+
+                                                                             Assert.That(nbCreated,
+                                                                                         Is.EqualTo(1));
+                                                                             Assert.That(nbDisposed,
+                                                                                         Is.Zero);
+
+                                                                             return (new WeakReference(pool), new WeakReference(guard));
+                                                                           });
+
+
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+
+    Assert.That(poolWeakReference.IsAlive,
+                Is.False);
+    Assert.That(guardWeakReference.IsAlive,
+                Is.False);
+
+    Assert.That(nbDisposed,
+                Is.EqualTo(1));
+  }
+
+  private static ValueTask<T> CallWithOwnContext<T>(Func<ValueTask<T>> f)
+    => f();
+
   private record SyncDisposeAction(Action F) : IDisposable
   {
     public void Dispose()

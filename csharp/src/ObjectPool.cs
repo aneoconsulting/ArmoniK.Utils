@@ -116,7 +116,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   {
     Debug.Assert(sem_.CurrentCount == max_,
                  "Some objects are still in use when disposing the object pool");
-    while (bag_.TryTake(out var obj))
+    foreach (var obj in bag_)
     {
       await DisposeOneAsync(obj)
         .ConfigureAwait(false);
@@ -129,17 +129,18 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <inheritdoc />
   public void Dispose()
   {
-    while (bag_.TryTake(out var obj))
+    Debug.Assert(sem_.CurrentCount == max_,
+                 "Some objects are still in use when disposing the object pool");
+    foreach (var obj in bag_)
     {
       DisposeOne(obj);
     }
 
     sem_.Dispose();
-    GC.SuppressFinalize(this);
   }
 
-  ~ObjectPool()
-    => Dispose();
+  // An object pool has only references to managed objects.
+  // So finalizer is not required as it will be called directly by the underlying resources
 
   /// <summary>
   ///   Acquire a new object from the pool, creating it if there is no object in the pool.
@@ -403,7 +404,18 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
          .GetResult();
 
     ~Guard()
-      => Dispose();
+    {
+      try
+      {
+        Dispose();
+      }
+      catch (ObjectDisposedException)
+      {
+        // In case both the guard and the pool was not disposed, and are collected at the same time,
+        // the inner bag and semaphore of the pool might also be collected at the same time, and already finalized.
+        // Therefore, we could have a Dispose exception when Releasing the guarded object.
+      }
+    }
 
     /// <summary>
     ///   Acquire a new object from the pool, and create the guard managing it.
