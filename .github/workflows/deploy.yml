@@ -79,6 +79,19 @@ jobs:
             runtime: linux-x64
           - os: windows-latest
             runtime: windows-x64
+        exclude:
+          - dotnet:
+              version: ""
+              framework: "net4.7"
+            platform:
+              os: ubuntu-latest
+              runtime: linux-x64
+          - dotnet:
+              version: ""
+              framework: "net4.8"
+            platform:
+              os: ubuntu-latest
+              runtime: linux-x64
       fail-fast: false
     runs-on: ${{ matrix.platform.os }}
     steps:
@@ -93,13 +106,12 @@ jobs:
 
     - name: Run tests
       working-directory: csharp
-      if: ${{ matrix.dotnet.version }} != "" || ${{ matrix.platform.os }} == "windows-latest"
       run: |
         dotnet test --runtime ${{ matrix.platform.runtime }} -f ${{ matrix.dotnet.framework }} --logger "trx;LogFileName=test-results.trx"
 
     - name: Test Report
       uses: dorny/test-reporter@v1
-      if: always() && (${{ matrix.dotnet.version }} != "" || ${{ matrix.platform.os }} == "windows-latest")
+      if: always()
       with:
         name: IntegrationTests ${{ matrix.platform.runtime }} ${{ matrix.dotnet.framework }}
         path: ./csharp/tests/TestResults/test-results.trx
