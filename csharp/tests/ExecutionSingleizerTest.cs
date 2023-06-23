@@ -136,7 +136,7 @@ public class ExecutionSingleizerTest
 
 
   [Test]
-  public async Task ManyThreadedConcurrentExecutionShouldSucceed()
+  public void ManyThreadedConcurrentExecutionShouldSucceed()
   {
     var n = 10000000;
 
@@ -159,28 +159,30 @@ public class ExecutionSingleizerTest
   [Test]
   public void CancelExecutionShouldFail()
   {
-    Assert.ThrowsAsync<TaskCanceledException>(async () =>
-                                              {
-                                                var cts = new CancellationTokenSource();
-                                                var task = single_!.Call(ct => Set(1,
-                                                                                   1000,
-                                                                                   ct),
-                                                                         cts.Token);
-                                                cts.Cancel();
-                                                await task.ConfigureAwait(false);
-                                              });
+    Assert.That(async () =>
+                {
+                  var cts = new CancellationTokenSource();
+                  var task = single_!.Call(ct => Set(1,
+                                                     1000,
+                                                     ct),
+                                           cts.Token);
+                  cts.Cancel();
+                  await task.ConfigureAwait(false);
+                },
+                Throws.InstanceOf<OperationCanceledException>());
     Assert.That(val_,
                 Is.EqualTo(0));
-    Assert.ThrowsAsync<TaskCanceledException>(async () =>
-                                              {
-                                                var cts = new CancellationTokenSource();
-                                                cts.Cancel();
-                                                var task = single_!.Call(ct => Set(1,
-                                                                                   1000,
-                                                                                   ct),
-                                                                         cts.Token);
-                                                await task.ConfigureAwait(false);
-                                              });
+    Assert.That(async () =>
+                {
+                  var cts = new CancellationTokenSource();
+                  cts.Cancel();
+                  var task = single_!.Call(ct => Set(1,
+                                                     1000,
+                                                     ct),
+                                           cts.Token);
+                  await task.ConfigureAwait(false);
+                },
+                Throws.InstanceOf<OperationCanceledException>());
     Assert.That(val_,
                 Is.EqualTo(0));
   }
@@ -198,7 +200,8 @@ public class ExecutionSingleizerTest
                                      ct),
                            CancellationToken.None);
     cts.Cancel();
-    Assert.ThrowsAsync<TaskCanceledException>(async () => await t1.ConfigureAwait(false));
+    Assert.That(() => t1,
+                Throws.InstanceOf<OperationCanceledException>());
 
     var j = await t2.ConfigureAwait(false);
     Assert.That(j,
@@ -208,7 +211,7 @@ public class ExecutionSingleizerTest
   }
 
   [Test]
-  public void ConcurrentCancelExecutionShouldFail()
+  public async Task ConcurrentCancelExecutionShouldFail()
   {
     var cts = new CancellationTokenSource();
     var t1 = single_!.Call(ct => Set(1,
@@ -219,9 +222,15 @@ public class ExecutionSingleizerTest
                                      1000,
                                      ct),
                            cts.Token);
+    await Task.Delay(10,
+                     CancellationToken.None)
+              .ConfigureAwait(false);
+
     cts.Cancel();
-    Assert.ThrowsAsync<TaskCanceledException>(async () => await t1.ConfigureAwait(false));
-    Assert.ThrowsAsync<TaskCanceledException>(async () => await t2.ConfigureAwait(false));
+    Assert.That(() => t1,
+                Throws.InstanceOf<OperationCanceledException>());
+    Assert.That(() => t2,
+                Throws.InstanceOf<OperationCanceledException>());
 
     Assert.That(val_,
                 Is.EqualTo(0));

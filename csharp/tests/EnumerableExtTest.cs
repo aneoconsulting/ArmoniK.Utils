@@ -156,9 +156,8 @@ public class EnumerableExtTest
   [TestCase(4)]
   public void AsICollectionShouldKeepReferenceHashSet(int n)
   {
-    var orig = Enumerable.Range(0,
-                                n)
-                         .ToHashSet();
+    var orig = new HashSet<int>(Enumerable.Range(0,
+                                                 n));
     var collection = orig.AsICollection();
     Assert.That(ReferenceEquals(collection,
                                 orig));
