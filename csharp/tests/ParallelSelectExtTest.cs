@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -394,6 +395,153 @@ public class ParallelSelectExtTest
 
     Assert.That(enumerator.MoveNextAsync,
                 Throws.TypeOf<ApplicationException>());
+  }
+
+
+  [Test]
+  [TestCaseSource(nameof(ParallelSelectLimitCases))]
+  [Retry(4)]
+  public async Task ParallelForeachLimitShouldSucceed(bool blocking,
+                                                      bool useAsync,
+                                                      int? parallelism,
+                                                      int  n)
+  {
+    var bag        = new ConcurrentBag<int>();
+    var counter    = 0;
+    var maxCounter = 0;
+
+    // We use a larger wait for infinite parallelism to ensure we can actually spawn thousands of tasks in parallel
+    var (delayMin, delayMax) = parallelism < 0
+                                 ? (200, 400)
+                                 : (50, 100);
+    var identity = AsyncIdentity(delayMin,
+                                 delayMax,
+                                 blocking);
+
+    async Task F(int x)
+    {
+      var count = Interlocked.Increment(ref counter);
+      InterlockedMax(ref maxCounter,
+                     count);
+
+      var y = await identity(x)
+                .ConfigureAwait(false);
+      bag.Add(y);
+      Interlocked.Decrement(ref counter);
+    }
+
+    // ReSharper disable function ConvertTypeCheckPatternToNullCheck
+    var task = (useAsync, parallelism) switch
+               {
+                 (false, null) => GenerateInts(n)
+                   .ParallelForEach(F),
+                 (false, int p) => GenerateInts(n)
+                   .ParallelForEach(new ParallelTaskOptions(p),
+                                    F),
+                 (true, null) => GenerateIntsAsync(n)
+                   .ParallelForEach(F),
+                 (true, int p) => GenerateIntsAsync(n)
+                   .ParallelForEach(new ParallelTaskOptions(p),
+                                    F),
+               };
+
+    await task.ConfigureAwait(false);
+
+    var x = bag.ToList();
+    var y = GenerateInts(n)
+      .ToList();
+
+    x.Sort();
+    y.Sort();
+
+    Assert.That(x,
+                Is.EqualTo(y));
+
+    switch (parallelism)
+    {
+      case > 0:
+        Assert.That(maxCounter,
+                    Is.EqualTo(parallelism));
+        break;
+      case null:
+      case 0:
+        Assert.That(maxCounter,
+                    Is.EqualTo(Environment.ProcessorCount));
+        break;
+      case < 0:
+        Assert.That(maxCounter,
+                    Is.EqualTo(n));
+        break;
+    }
+  }
+
+
+  [Test]
+  [TestCaseSource(nameof(CancellationCases))]
+  public async Task ForeachCancellationShouldSucceed(bool useAsync,
+                                                     bool cancellationAware,
+                                                     bool cancelLast)
+  {
+    const int cancelAt = 100;
+
+    var maxEntered = -1;
+    var cts        = new CancellationTokenSource();
+
+    async Task F(int x)
+    {
+      InterlockedMax(ref maxEntered,
+                     x);
+
+      await Task.Delay(100,
+                       cancellationAware
+                         ? cts.Token
+                         : CancellationToken.None)
+                .ConfigureAwait(false);
+    }
+
+    var n = cancelLast
+              ? cancelAt + 1
+              : 100000;
+
+    int CancelAt(int x)
+    {
+      if (x == cancelAt)
+      {
+        cts.Cancel();
+      }
+
+      return x;
+    }
+
+    var task = useAsync
+                 ? GenerateInts(n)
+                   .Select(CancelAt)
+                   .ParallelForEach(new ParallelTaskOptions(-1,
+                                                            cts.Token),
+                                    F)
+                 : GenerateIntsAsync(n,
+                                     1)
+                   .Select(CancelAt)
+                   .SelectAwait(async x =>
+                                {
+                                  await Task.Yield();
+                                  return x;
+                                })
+                   .ParallelForEach(new ParallelTaskOptions(-1,
+                                                            cts.Token),
+                                    F);
+
+    Assert.ThrowsAsync<TaskCanceledException>(async () =>
+                                              {
+                                                await task.ConfigureAwait(false);
+                                              });
+
+    await Task.Delay(200,
+                     CancellationToken.None)
+              .ConfigureAwait(false);
+
+    Assert.That(maxEntered,
+                Is.LessThan(cancelAt));
   }
 
   private static IAsyncEnumerable<T> GenerateAndSelect<T>(bool               useAsync,
