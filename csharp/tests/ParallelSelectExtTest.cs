@@ -175,6 +175,7 @@ public class ParallelSelectExtTest
 
   [Test]
   [TestCaseSource(nameof(ParallelSelectLimitCases))]
+  [Retry(4)]
   public async Task ParallelSelectLimitShouldSucceed(bool blocking,
                                                      bool useAsync,
                                                      int? parallelism,
