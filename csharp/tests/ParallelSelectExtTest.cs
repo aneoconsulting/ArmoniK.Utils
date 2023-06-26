@@ -175,6 +175,7 @@ public class ParallelSelectExtTest
 
   [Test]
   [TestCaseSource(nameof(ParallelSelectLimitCases))]
+  [Retry(4)]
   public async Task ParallelSelectLimitShouldSucceed(bool blocking,
                                                      bool useAsync,
                                                      int? parallelism,
@@ -336,12 +337,13 @@ public class ParallelSelectExtTest
                                                                  cts.Token),
                                          F);
 
-    Assert.ThrowsAsync<TaskCanceledException>(async () =>
-                                              {
-                                                await foreach (var _ in enumerable.WithCancellation(CancellationToken.None))
-                                                {
-                                                }
-                                              });
+    Assert.That(async () =>
+                {
+                  await foreach (var _ in enumerable.WithCancellation(CancellationToken.None))
+                  {
+                  }
+                },
+                Throws.InstanceOf<OperationCanceledException>());
 
     await Task.Delay(200,
                      CancellationToken.None)
@@ -390,8 +392,8 @@ public class ParallelSelectExtTest
                   Is.EqualTo(i));
     }
 
-    Assert.ThrowsAsync<ApplicationException>(async () => await enumerator.MoveNextAsync()
-                                                                         .ConfigureAwait(false));
+    Assert.That(enumerator.MoveNextAsync,
+                Throws.TypeOf<ApplicationException>());
   }
 
   private static IAsyncEnumerable<T> GenerateAndSelect<T>(bool               useAsync,

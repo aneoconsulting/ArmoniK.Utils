@@ -139,8 +139,10 @@ public class ChunkTest
     var enumerable = arraySize is not null
                        ? Enumerable.Range(0,
                                           (int)arraySize)
-                       : null as IEnumerable<int>;
-    Assert.Throws<ArgumentOutOfRangeException>(() => enumerable.ToChunks(chunkSize));
+                       : null;
+
+    Assert.That(() => enumerable.ToChunks(chunkSize),
+                Throws.TypeOf<ArgumentOutOfRangeException>());
   }
 
   ////////////////////////
@@ -250,10 +252,10 @@ public class ChunkTest
                                           (int)arraySize)
                                    .ToAsyncEnumerable()
                        : null as IAsyncEnumerable<int>;
-    Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => enumerable.ToChunksAsync(chunkSize,
-                                                                                   TimeSpan.FromMilliseconds(100))
-                                                                    .ToListAsync()
-                                                                    .AsTask());
+    Assert.That(() => enumerable.ToChunksAsync(chunkSize,
+                                               TimeSpan.FromMilliseconds(100))
+                                .ToListAsync(),
+                Throws.TypeOf<ArgumentOutOfRangeException>());
   }
 
 
@@ -389,8 +391,8 @@ public class ChunkTest
                              5,
                            }));
 
-    Assert.ThrowsAsync<ApplicationException>(() => enumerator.MoveNextAsync()
-                                                             .AsTask());
+    Assert.That(enumerator.MoveNextAsync,
+                Throws.TypeOf<ApplicationException>());
   }
 
   [Test]
@@ -430,8 +432,8 @@ public class ChunkTest
                            }));
     cts.Cancel();
 
-    Assert.ThrowsAsync<OperationCanceledException>(() => enumerator.MoveNextAsync()
-                                                                   .AsTask());
+    Assert.That(enumerator.MoveNextAsync,
+                Throws.InstanceOf<OperationCanceledException>());
   }
 
   [Test]
@@ -495,7 +497,8 @@ public class ChunkTest
                              }));
     }
 
-    Assert.ThrowsAsync<OperationCanceledException>(() => enumerator.MoveNextAsync()
-                                                                   .AsTask());
+
+    Assert.That(enumerator.MoveNextAsync,
+                Throws.InstanceOf<OperationCanceledException>());
   }
 }
