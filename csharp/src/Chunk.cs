@@ -18,7 +18,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -227,11 +226,6 @@ internal static class Chunk
     Clean();
 
     // If there were any error, the error must be rethrow
-    if (error is not null)
-    {
-      // Keep the stack trace for the rethrown exception
-      ExceptionDispatchInfo.Capture(error)
-                           .Throw();
-    }
+    error?.RethrowWithStacktrace();
   }
 }
