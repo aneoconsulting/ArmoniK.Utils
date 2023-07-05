@@ -215,8 +215,8 @@ public class ObjectPoolTest
 
       if (max > 0)
       {
-        Assert.ThrowsAsync<TimeoutException>(async () => await pool.GetAsync(TimeSpan.Zero)
-                                                                   .ConfigureAwait(false));
+        Assert.That(() => pool.GetAsync(TimeSpan.Zero),
+                    Throws.InstanceOf<TimeoutException>());
       }
 
       foreach (var guard in guards)
@@ -237,16 +237,15 @@ public class ObjectPoolTest
     await using var pool = new ObjectPool<int>(1,
                                                _ => new ValueTask<int>(nbCreated++));
     cts0.Cancel();
-    // Semaphore wait throws TaskCanceledException if the token is triggered before the call to wait
-    Assert.ThrowsAsync<TaskCanceledException>(() => pool.GetAsync(cts0.Token)
-                                                        .AsTask());
+    Assert.That(() => pool.GetAsync(cts0.Token),
+                Throws.InstanceOf<OperationCanceledException>());
 
     await using var obj = await pool.GetAsync(CancellationToken.None)
                                     .ConfigureAwait(false);
     var acquireTask = pool.GetAsync(cts2.Token);
     cts2.Cancel();
-    // Semaphore wait throws OperationCanceledException if the token is triggered during the wait
-    Assert.ThrowsAsync<OperationCanceledException>(() => acquireTask.AsTask());
+    Assert.That(() => acquireTask,
+                Throws.InstanceOf<OperationCanceledException>());
   }
 
 
@@ -268,7 +267,8 @@ public class ObjectPoolTest
 
     cts.Cancel();
 
-    Assert.ThrowsAsync<TaskCanceledException>(async () => await acquireTask.ConfigureAwait(false));
+    Assert.That(() => acquireTask,
+                Throws.InstanceOf<OperationCanceledException>());
 
     var obj = await pool.GetAsync(CancellationToken.None)
                         .ConfigureAwait(false);
@@ -297,8 +297,8 @@ public class ObjectPoolTest
                                                  throw new ApplicationException("");
                                                });
 
-    Assert.ThrowsAsync<ApplicationException>(() => pool.GetAsync()
-                                                       .AsTask());
+    Assert.That(() => pool.GetAsync(),
+                Throws.TypeOf<ApplicationException>());
 
     await using var obj = await pool.GetAsync(TimeSpan.Zero)
                                     .ConfigureAwait(false);
@@ -333,8 +333,8 @@ public class ObjectPoolTest
     Assert.That(obj.Value,
                 Is.EqualTo(0));
 
-    Assert.ThrowsAsync<ApplicationException>(() => obj.DisposeAsync()
-                                                      .AsTask());
+    Assert.That(() => obj.DisposeAsync(),
+                Throws.TypeOf<ApplicationException>());
 
     obj = await pool.GetAsync()
                     .ConfigureAwait(false);
