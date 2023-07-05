@@ -31,8 +31,7 @@ public class ObjectPoolTest
   public async Task ReuseObjectsFromPoolShouldSucceed(bool async)
   {
     var nbCreated = 0;
-    await using var pool = new ObjectPool<int>(10,
-                                               _ => new ValueTask<int>(nbCreated++),
+    await using var pool = new ObjectPool<int>(_ => new ValueTask<int>(nbCreated++),
                                                (i,
                                                 _) => new ValueTask<bool>(i % 2 == 0));
     {
@@ -106,8 +105,7 @@ public class ObjectPoolTest
                                              bool asyncDispose)
   {
     var nbDisposed = 0;
-    var pool = new ObjectPool<object>(10,
-                                      _ => new ValueTask<object>(asyncDisposable
+    var pool = new ObjectPool<object>(_ => new ValueTask<object>(asyncDisposable
                                                                    ? new AsyncDisposeAction(() => nbDisposed += 1)
                                                                    : new SyncDisposeAction(() => nbDisposed += 1)));
 
@@ -148,8 +146,7 @@ public class ObjectPoolTest
                                                bool asyncDispose)
   {
     var nbDisposed = 0;
-    var pool = new ObjectPool<object>(10,
-                                      _ => new ValueTask<object>(asyncDisposable
+    var pool = new ObjectPool<object>(_ => new ValueTask<object>(asyncDisposable
                                                                    ? new AsyncDisposeAction(() => nbDisposed += 1)
                                                                    : new SyncDisposeAction(() => nbDisposed += 1)),
                                       (_,
@@ -191,15 +188,18 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [TestCase(null)]
   [TestCase(-1)]
   [TestCase(1)]
   [TestCase(4)]
-  public async Task MaxLimitShouldSucceed(int max)
+  public async Task MaxLimitShouldSucceed(int? max)
   {
-    await using var pool = new ObjectPool<int>(max,
-                                               _ => new ValueTask<int>(0));
+    await using var pool = max is null
+                             ? new ObjectPool<int>(_ => new ValueTask<int>(0))
+                             : new ObjectPool<int>((int)max,
+                                                   _ => new ValueTask<int>(0));
 
-    var n = max < 0
+    var n = (max ?? -1) < 0
               ? 1000
               : max;
 
@@ -562,8 +562,7 @@ public class ObjectPoolTest
   public async Task ReturnDisposeThrow(bool asyncDisposable,
                                        bool asyncDispose)
   {
-    var pool = new ObjectPool<object>(10,
-                                      _ => new ValueTask<object>(asyncDisposable
+    var pool = new ObjectPool<object>(_ => new ValueTask<object>(asyncDisposable
                                                                    ? new AsyncDisposeAction(() => throw new ApplicationException())
                                                                    : new SyncDisposeAction(() => throw new ApplicationException())),
                                       (_,

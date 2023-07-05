@@ -99,6 +99,9 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
                     Func<CancellationToken, ValueTask<T>>        createFunc,
                     Func<T, CancellationToken, ValueTask<bool>>? returnFunc = null)
   {
+    // For now, the object pool is constructed directly with 2 functions, but in the future
+    // we might want to use a `ObjectPoolPolicy` instead, and make this constructor
+    // just build a standard `ObjectPoolPolicy` from the functions.
     max = max switch
           {
             < 0 => int.MaxValue,
@@ -111,6 +114,20 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     max_        = max;
     createFunc_ = createFunc;
     returnFunc_ = returnFunc;
+  }
+
+  /// <summary>
+  ///   Create a new ObjectPool without limit on the number of objects created.
+  /// </summary>
+  /// <param name="createFunc">Function to call to create new objects</param>
+  /// <param name="returnFunc">Function to call to check if an object is still valid and can be returned to the pool</param>
+  [PublicAPI]
+  public ObjectPool(Func<CancellationToken, ValueTask<T>>        createFunc,
+                    Func<T, CancellationToken, ValueTask<bool>>? returnFunc = null)
+    : this(-1,
+           createFunc,
+           returnFunc)
+  {
   }
 
   /// <inheritdoc />
