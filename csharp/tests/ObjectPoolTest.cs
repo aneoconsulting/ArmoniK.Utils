@@ -26,14 +26,16 @@ namespace ArmoniK.Utils.Tests;
 public class ObjectPoolTest
 {
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task ReuseObjectsFromPoolShouldSucceed(bool async)
+  public async Task ReuseObjectsFromPoolShouldSucceed([Values] bool asyncDispose,
+                                                      [Values] bool asyncFactory)
   {
     var nbCreated = 0;
-    await using var pool = new ObjectPool<int>(_ => new ValueTask<int>(nbCreated++),
-                                               (i,
-                                                _) => new ValueTask<bool>(i % 2 == 0));
+    await using var pool = asyncFactory
+                             ? new ObjectPool<int>(_ => new ValueTask<int>(nbCreated++),
+                                                   (i,
+                                                    _) => new ValueTask<bool>(i % 2 == 0))
+                             : new ObjectPool<int>(() => nbCreated++,
+                                                   i => i % 2 == 0);
     {
       var obj0 = await pool.GetAsync()
                            .ConfigureAwait(false);
@@ -47,7 +49,7 @@ public class ObjectPoolTest
       Assert.That(obj1.Value,
                   Is.EqualTo(1));
 
-      if (async)
+      if (asyncDispose)
       {
         await obj0.DisposeAsync()
                   .ConfigureAwait(false);
@@ -75,7 +77,7 @@ public class ObjectPoolTest
       Assert.That(obj1.Value,
                   Is.EqualTo(2));
 
-      if (async)
+      if (asyncDispose)
       {
         await obj0.DisposeAsync()
                   .ConfigureAwait(false);
@@ -93,21 +95,20 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [TestCase(false,
-            false)]
-  [TestCase(false,
-            true)]
-  [TestCase(true,
-            false)]
-  [TestCase(true,
-            true)]
-  public async Task PoolDisposeShouldSucceed(bool asyncDisposable,
-                                             bool asyncDispose)
+  public async Task PoolDisposeShouldSucceed([Values] bool asyncDisposable,
+                                             [Values] bool asyncDispose,
+                                             [Values] bool asyncFactory)
   {
     var nbDisposed = 0;
-    var pool = new ObjectPool<object>(_ => new ValueTask<object>(asyncDisposable
-                                                                   ? new AsyncDisposeAction(() => nbDisposed += 1)
-                                                                   : new SyncDisposeAction(() => nbDisposed += 1)));
+
+    object Factory()
+      => asyncDisposable
+           ? new AsyncDisposeAction(() => nbDisposed += 1)
+           : new SyncDisposeAction(() => nbDisposed += 1);
+
+    var pool = asyncFactory
+                 ? new ObjectPool<object>(_ => new ValueTask<object>(Factory()))
+                 : new ObjectPool<object>(Factory);
 
     await using (var obj = await pool.GetAsync()
                                      .ConfigureAwait(false))
@@ -134,23 +135,23 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [TestCase(false,
-            false)]
-  [TestCase(false,
-            true)]
-  [TestCase(true,
-            false)]
-  [TestCase(true,
-            true)]
-  public async Task ReturnDisposeShouldSucceed(bool asyncDisposable,
-                                               bool asyncDispose)
+  public async Task ReturnDisposeShouldSucceed([Values] bool asyncDisposable,
+                                               [Values] bool asyncDispose,
+                                               [Values] bool asyncFactory)
   {
     var nbDisposed = 0;
-    var pool = new ObjectPool<object>(_ => new ValueTask<object>(asyncDisposable
-                                                                   ? new AsyncDisposeAction(() => nbDisposed += 1)
-                                                                   : new SyncDisposeAction(() => nbDisposed += 1)),
-                                      (_,
-                                       _) => new ValueTask<bool>(false));
+
+    object Factory()
+      => asyncDisposable
+           ? new AsyncDisposeAction(() => nbDisposed += 1)
+           : new SyncDisposeAction(() => nbDisposed += 1);
+
+    var pool = asyncFactory
+                 ? new ObjectPool<object>(_ => new ValueTask<object>(Factory()),
+                                          (_,
+                                           _) => new ValueTask<bool>(false))
+                 : new ObjectPool<object>(Factory,
+                                          _ => false);
 
     var obj = await pool.GetAsync()
                         .ConfigureAwait(false);
@@ -188,16 +189,24 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [TestCase(null)]
-  [TestCase(-1)]
-  [TestCase(1)]
-  [TestCase(4)]
-  public async Task MaxLimitShouldSucceed(int? max)
+  public async Task MaxLimitShouldSucceed([Values(null,
+                                                  -1,
+                                                  1,
+                                                  4)]
+                                          int? max,
+                                          [Values] bool asyncFactory)
   {
-    await using var pool = max is null
-                             ? new ObjectPool<int>(_ => new ValueTask<int>(0))
-                             : new ObjectPool<int>((int)max,
-                                                   _ => new ValueTask<int>(0));
+    // ReSharper disable ConvertTypeCheckPatternToNullCheck
+    await using var pool = (max, asyncFactory) switch
+                           {
+                             (null, false) => new ObjectPool<int>(_ => new ValueTask<int>(0)),
+                             (null, true)  => new ObjectPool<int>(() => 0),
+                             (int m, false) => new ObjectPool<int>(m,
+                                                                   _ => new ValueTask<int>(0)),
+                             (int m, true) => new ObjectPool<int>(m,
+                                                                  () => 0),
+                           };
+    // ReSharper restore ConvertTypeCheckPatternToNullCheck
 
     var n = (max ?? -1) < 0
               ? 1000
@@ -228,14 +237,17 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task AcquireCancellation()
+  public async Task AcquireCancellation([Values] bool asyncFactory)
   {
     var       nbCreated = 0;
     using var cts0      = new CancellationTokenSource();
     using var cts1      = new CancellationTokenSource();
     using var cts2      = new CancellationTokenSource();
-    await using var pool = new ObjectPool<int>(1,
-                                               _ => new ValueTask<int>(nbCreated++));
+    await using var pool = asyncFactory
+                             ? new ObjectPool<int>(1,
+                                                   _ => new ValueTask<int>(nbCreated++))
+                             : new ObjectPool<int>(1,
+                                                   () => nbCreated++);
     cts0.Cancel();
     Assert.That(() => pool.GetAsync(cts0.Token),
                 Throws.InstanceOf<OperationCanceledException>());

@@ -127,6 +127,42 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   {
   }
 
+  /// <summary>
+  ///   Create a new ObjectPool that can have at most <paramref name="max" /> objects created at the same time.
+  /// </summary>
+  /// <remarks>
+  ///   If <paramref name="max" /> is negative, no limit is enforced.
+  /// </remarks>
+  /// <param name="max">Maximum number of objects</param>
+  /// <param name="createFunc">Function to call to create new objects</param>
+  /// <param name="returnFunc">Function to call to check if an object is still valid and can be returned to the pool</param>
+  [PublicAPI]
+  public ObjectPool(int            max,
+                    Func<T>        createFunc,
+                    Func<T, bool>? returnFunc = null)
+    : this(max,
+           _ => new ValueTask<T>(createFunc()),
+           returnFunc is not null
+             ? (x,
+                _) => new ValueTask<bool>(returnFunc(x))
+             : null)
+  {
+  }
+
+  /// <summary>
+  ///   Create a new ObjectPool without limit on the number of objects created.
+  /// </summary>
+  /// <param name="createFunc">Function to call to create new objects</param>
+  /// <param name="returnFunc">Function to call to check if an object is still valid and can be returned to the pool</param>
+  [PublicAPI]
+  public ObjectPool(Func<T>        createFunc,
+                    Func<T, bool>? returnFunc = null)
+    : this(-1,
+           createFunc,
+           returnFunc)
+  {
+  }
+
   /// <inheritdoc />
   public async ValueTask DisposeAsync()
   {
