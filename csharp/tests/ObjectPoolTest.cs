@@ -215,8 +215,8 @@ public class ObjectPoolTest
 
       if (max > 0)
       {
-        Assert.That(() => pool.GetAsync(TimeSpan.Zero),
-                    Throws.InstanceOf<TimeoutException>());
+        Assert.That(!await IsPoolAvailableAsync(pool)
+                       .ConfigureAwait(false));
       }
 
       foreach (var guard in guards)
@@ -300,7 +300,10 @@ public class ObjectPoolTest
     Assert.That(() => pool.GetAsync(),
                 Throws.TypeOf<ApplicationException>());
 
-    await using var obj = await pool.GetAsync(TimeSpan.Zero)
+    Assert.That(await IsPoolAvailableAsync(pool)
+                  .ConfigureAwait(false));
+
+    await using var obj = await pool.GetAsync()
                                     .ConfigureAwait(false);
 
     Assert.That(obj.Value,
@@ -399,7 +402,8 @@ public class ObjectPoolTest
                                                                                            return new ValueTask<object>(new Deferrer(() => nbDisposed += 1));
                                                                                          });
 
-                                                       await using (var guard = await pool.GetAsync())
+                                                       await using (await pool.GetAsync()
+                                                                              .ConfigureAwait(false))
                                                        {
                                                        }
 
@@ -474,6 +478,25 @@ public class ObjectPoolTest
 
   private static ValueTask<T> CallWithOwnContext<T>(Func<ValueTask<T>> f)
     => f();
+
+  private static async ValueTask<bool> IsPoolAvailableAsync<T>(ObjectPool<T> pool)
+  {
+    var cts     = new CancellationTokenSource();
+    var getTask = pool.GetAsync(cts.Token);
+    await Task.Delay(1,
+                     CancellationToken.None)
+              .ConfigureAwait(false);
+    cts.Cancel();
+    try
+    {
+      await using var guard = await getTask.ConfigureAwait(false);
+      return true;
+    }
+    catch (OperationCanceledException)
+    {
+      return false;
+    }
+  }
 
   private record SyncDisposeAction(Action F) : IDisposable
   {
