@@ -55,7 +55,7 @@ namespace ArmoniK.Utils;
 ///       // Create a client synchronously and limit the pool to 10 clients.
 ///       // Acquire an object and use it in a callback.
 ///       await using var pool = new ObjectPool&lt;Client&gt;(10,
-///                                                     _ => ValueTask.FromResult(new Client()));
+///                                                     () => new Client());
 ///       /* ... */
 ///       var result = await pool.CallWithAsync(client => client.DoSomething());
 ///     </code>
@@ -65,8 +65,7 @@ namespace ArmoniK.Utils;
 ///       // Create a client <i>asynchronously</i> without object limit.
 ///       // Verify that a client is still valid before returning it to the pool.
 ///       // Acquire an object with a Guard.
-///       await using var pool = new ObjectPool&lt;AsyncClient&gt;(-1,
-///                                                          async ct => await AsyncClient.CreateAsync(ct),
+///       await using var pool = new ObjectPool&lt;AsyncClient&gt;(async ct => await AsyncClient.CreateAsync(ct),
 ///                                                          async (client, ct) => await client.PingAsync(ct));
 ///       /* ... */
 ///       await using var client = await pool.GetAsync(cancellationToken);
