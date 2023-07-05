@@ -16,7 +16,9 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -116,14 +118,29 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   {
     Debug.Assert(sem_.CurrentCount == max_,
                  "Some objects are still in use when disposing the object pool");
+
+    var errors = new List<Exception>();
+
     foreach (var obj in bag_)
     {
-      await DisposeOneAsync(obj)
-        .ConfigureAwait(false);
+      try
+      {
+        await DisposeOneAsync(obj)
+          .ConfigureAwait(false);
+      }
+      catch (Exception error)
+      {
+        errors.Add(error);
+      }
     }
 
     sem_.Dispose();
     GC.SuppressFinalize(this);
+
+    if (errors.Any())
+    {
+      throw new AggregateException(errors);
+    }
   }
 
   /// <inheritdoc />
@@ -131,12 +148,28 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   {
     Debug.Assert(sem_.CurrentCount == max_,
                  "Some objects are still in use when disposing the object pool");
+
+    var errors = new List<Exception>();
+
     foreach (var obj in bag_)
     {
-      DisposeOne(obj);
+      try
+      {
+        DisposeOne(obj);
+      }
+      catch (Exception error)
+      {
+        errors.Add(error);
+      }
     }
 
     sem_.Dispose();
+    GC.SuppressFinalize(this);
+
+    if (errors.Any())
+    {
+      throw new AggregateException(errors);
+    }
   }
 
   // An object pool has only references to managed objects.

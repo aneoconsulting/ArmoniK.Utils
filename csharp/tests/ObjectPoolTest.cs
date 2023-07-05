@@ -476,6 +476,125 @@ public class ObjectPoolTest
                 Is.EqualTo(1));
   }
 
+
+  [Test]
+  [TestCase(false,
+            false)]
+  [TestCase(false,
+            true)]
+  [TestCase(true,
+            false)]
+  [TestCase(true,
+            true)]
+  public async Task PoolDisposeThrow(bool asyncDisposable,
+                                     bool asyncDispose)
+  {
+    var nbDisposed = 0;
+
+    void Dispose()
+    {
+      switch (++nbDisposed % 4)
+      {
+        case 1:
+          throw new ApplicationException("first");
+        case 3:
+          throw new ApplicationException("second");
+      }
+    }
+
+    var pool = new ObjectPool<object>(10,
+                                      _ => new ValueTask<object>(asyncDisposable
+                                                                   ? new AsyncDisposeAction(Dispose)
+                                                                   : new SyncDisposeAction(Dispose)));
+
+
+    await using (await pool.GetAsync()
+                           .ConfigureAwait(false))
+    await using (await pool.GetAsync()
+                           .ConfigureAwait(false))
+    await using (await pool.GetAsync()
+                           .ConfigureAwait(false))
+    await using (await pool.GetAsync()
+                           .ConfigureAwait(false))
+    {
+    }
+
+    Assert.That(nbDisposed,
+                Is.EqualTo(0));
+
+    AggregateException ex;
+
+    if (asyncDispose)
+    {
+      ex = Assert.ThrowsAsync<AggregateException>(() => pool.DisposeAsync()
+                                                            .AsTask())!;
+    }
+    else
+    {
+      ex = Assert.Throws<AggregateException>(() => pool.Dispose())!;
+    }
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(ex.InnerExceptions,
+                                  Has.Count.EqualTo(2));
+                      Assert.That(ex.InnerExceptions,
+                                  Has.All.TypeOf<ApplicationException>());
+                      Assert.That(ex.InnerExceptions[0],
+                                  Has.Message.EqualTo("first"));
+                      Assert.That(ex.InnerExceptions[1],
+                                  Has.Message.EqualTo("second"));
+
+                      Assert.That(nbDisposed,
+                                  Is.EqualTo(4));
+                    });
+  }
+
+  [Test]
+  [TestCase(false,
+            false)]
+  [TestCase(false,
+            true)]
+  [TestCase(true,
+            false)]
+  [TestCase(true,
+            true)]
+  public async Task ReturnDisposeThrow(bool asyncDisposable,
+                                       bool asyncDispose)
+  {
+    var pool = new ObjectPool<object>(10,
+                                      _ => new ValueTask<object>(asyncDisposable
+                                                                   ? new AsyncDisposeAction(() => throw new ApplicationException())
+                                                                   : new SyncDisposeAction(() => throw new ApplicationException())),
+                                      (_,
+                                       _) => new ValueTask<bool>(false));
+
+    var obj = await pool.GetAsync()
+                        .ConfigureAwait(false);
+
+    if (asyncDispose)
+    {
+      Assert.That(() => obj.DisposeAsync(),
+                  Throws.TypeOf<ApplicationException>());
+    }
+    else
+    {
+      Assert.That(() => obj.Dispose(),
+                  Throws.TypeOf<ApplicationException>());
+    }
+
+    if (asyncDispose)
+    {
+      Assert.That(() => pool.DisposeAsync(),
+                  Throws.Nothing);
+    }
+    else
+    {
+      Assert.That(() => pool.Dispose(),
+                  Throws.Nothing);
+    }
+  }
+
   private static ValueTask<T> CallWithOwnContext<T>(Func<ValueTask<T>> f)
     => f();
 
