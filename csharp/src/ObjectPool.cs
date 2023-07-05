@@ -17,7 +17,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -81,7 +80,6 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
 {
   private readonly ConcurrentBag<T>                             bag_;
   private readonly Func<CancellationToken, ValueTask<T>>        createFunc_;
-  private readonly int                                          max_;
   private readonly Func<T, CancellationToken, ValueTask<bool>>? returnFunc_;
   private readonly SemaphoreSlim                                sem_;
 
@@ -111,7 +109,6 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
 
     bag_        = new ConcurrentBag<T>();
     sem_        = new SemaphoreSlim(max);
-    max_        = max;
     createFunc_ = createFunc;
     returnFunc_ = returnFunc;
   }
@@ -133,9 +130,6 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <inheritdoc />
   public async ValueTask DisposeAsync()
   {
-    Debug.Assert(sem_.CurrentCount == max_,
-                 "Some objects are still in use when disposing the object pool");
-
     var errors = new List<Exception>();
 
     foreach (var obj in bag_)
@@ -152,7 +146,6 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     }
 
     sem_.Dispose();
-    GC.SuppressFinalize(this);
 
     if (errors.Any())
     {
@@ -163,9 +156,6 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <inheritdoc />
   public void Dispose()
   {
-    Debug.Assert(sem_.CurrentCount == max_,
-                 "Some objects are still in use when disposing the object pool");
-
     var errors = new List<Exception>();
 
     foreach (var obj in bag_)
@@ -181,7 +171,6 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     }
 
     sem_.Dispose();
-    GC.SuppressFinalize(this);
 
     if (errors.Any())
     {

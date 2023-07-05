@@ -476,6 +476,35 @@ public class ObjectPoolTest
                 Is.EqualTo(1));
   }
 
+  [Test]
+  [TestCase(false)]
+  [TestCase(true)]
+  public async Task PoolDisposeWithGuardAlive(bool asyncDispose)
+  {
+    var pool = new ObjectPool<ValueTuple>(_ => new ValueTask<ValueTuple>(new ValueTuple()));
+
+    var guard = await pool.GetAsync()
+                          .ConfigureAwait(false);
+
+    Assert.Multiple(() =>
+                    {
+                      if (asyncDispose)
+                      {
+                        Assert.That(() => pool.DisposeAsync(),
+                                    Throws.Nothing);
+                        Assert.That(() => guard.DisposeAsync(),
+                                    Throws.InstanceOf<ObjectDisposedException>());
+                      }
+                      else
+                      {
+                        Assert.That(() => pool.Dispose(),
+                                    Throws.Nothing);
+                        Assert.That(() => guard.Dispose(),
+                                    Throws.InstanceOf<ObjectDisposedException>());
+                      }
+                    });
+  }
+
 
   [Test]
   [TestCase(false,
