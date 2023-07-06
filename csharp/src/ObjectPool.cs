@@ -295,8 +295,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
         break;
       case IAsyncDisposable asyncDisposable:
         asyncDisposable.DisposeAsync()
-                       .GetAwaiter()
-                       .GetResult();
+                       .WaitSync();
         break;
     }
   }
@@ -349,8 +348,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   [PublicAPI]
   public Guard Get()
     => GetAsync()
-       .GetAwaiter()
-       .GetResult();
+      .WaitSync();
 
 
   /// <summary>
@@ -511,8 +509,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     /// <inheritdoc />
     public void Dispose()
       => DisposeAsync()
-         .GetAwaiter()
-         .GetResult();
+        .WaitSync();
 
     ~Guard()
     {
