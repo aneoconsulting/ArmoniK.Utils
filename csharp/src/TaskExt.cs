@@ -1,6 +1,6 @@
 // This file is part of the ArmoniK project
 //
-// Copyright (C) ANEO, 2022-2022.All rights reserved.
+// Copyright (C) ANEO, 2022-2023.All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
@@ -153,10 +153,8 @@ public static class TaskExt
         // Signal the token source, if any
         cancellationTokenSource?.Cancel();
 
-        // Task is already completed, .GetAwaiter().GetResult() will not block
-        // .GetResult() will throw the exception that we want and not an AggregateException like .Wait() or .Result would
-        task.GetAwaiter()
-            .GetResult();
+        // Task is already completed, .WaitSync() will not block
+        task.WaitSync();
 
         break;
       case TaskStatus.RanToCompletion:
@@ -170,4 +168,67 @@ public static class TaskExt
         return;
     }
   }
+
+  /// <summary>
+  ///   Synchronously wait a <see cref="Task" />.
+  /// </summary>
+  /// <param name="task">Task to be awaited</param>
+  [PublicAPI]
+  public static void WaitSync(this Task task)
+    // Ensure exception is propagated without wrapping it into an AggregateException like .Result or .Wait() would.
+    => task.GetAwaiter()
+           .GetResult();
+
+  /// <summary>
+  ///   Synchronously wait a <see cref="Task{T}" />.
+  /// </summary>
+  /// <param name="task">Task to be awaited</param>
+  /// <typeparam name="TResult">Type of the task result</typeparam>
+  /// <returns>Result of the task</returns>
+  [PublicAPI]
+  public static TResult WaitSync<TResult>(this Task<TResult> task)
+    // Ensure exception is propagated without wrapping it into an AggregateException like .Result or .Wait() would.
+    => task.GetAwaiter()
+           .GetResult();
+
+  /// <summary>
+  ///   Synchronously wait a <see cref="ValueTask" />.
+  /// </summary>
+  /// <param name="task">Task to be awaited</param>
+  [PublicAPI]
+  public static void WaitSync(this ValueTask task)
+  {
+    if (task.IsCompleted)
+    {
+      // Ensure exception is propagated without wrapping it into an AggregateException like .Result or .Wait() would.
+      task.GetAwaiter()
+          .GetResult();
+    }
+    else
+    {
+      // Not already completed `ValueTask` cannot be safely synchronously waited in a direct way.
+      // Converting to actual `Task` enable to wait for it safely.
+      task.AsTask()
+          .GetAwaiter()
+          .GetResult();
+    }
+  }
+
+  /// <summary>
+  ///   Synchronously wait a <see cref="ValueTask{T}" />.
+  /// </summary>
+  /// <param name="task">Task to be awaited</param>
+  /// <typeparam name="TResult">Type of the task result</typeparam>
+  /// <returns>Result of the task</returns>
+  [PublicAPI]
+  public static TResult WaitSync<TResult>(this ValueTask<TResult> task)
+    => task.IsCompleted
+         // Ensure exception is propagated without wrapping it into an AggregateException like .Result or .Wait() would.
+         ? task.GetAwaiter()
+               .GetResult()
+         // Not already completed `ValueTask` cannot be safely synchronously waited in a direct way.
+         // Converting to actual `Task` enable to wait for it safely.
+         : task.AsTask()
+               .GetAwaiter()
+               .GetResult();
 }

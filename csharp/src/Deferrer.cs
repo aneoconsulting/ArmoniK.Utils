@@ -85,8 +85,7 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
     else if (asyncDeferred_ is not null)
     {
       DisposeAsyncCore()
-        .GetAwaiter()
-        .GetResult();
+        .WaitSync();
     }
   }
 
