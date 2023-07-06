@@ -54,10 +54,10 @@ namespace ArmoniK.Utils;
 ///     <code>
 ///       // Create a client synchronously and limit the pool to 10 clients.
 ///       // Acquire an object and use it in a callback.
-///       await using var pool = new ObjectPool&lt;Client&gt;(10,
-///                                                     () => new Client());
+///       using var pool = new ObjectPool&lt;Client&gt;(10,
+///                                               () => new Client());
 ///       /* ... */
-///       var result = await pool.CallWithAsync(client => client.DoSomething());
+///       var result = pool.WithInstance(client => client.DoSomething());
 ///     </code>
 ///   </para>
 ///   <para>
