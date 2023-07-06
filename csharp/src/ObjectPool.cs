@@ -336,6 +336,22 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     => Guard.Create(this,
                     cancellationToken);
 
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   The method returns a guard that contains the acquired object, and that automatically release the object when
+  ///   disposed.
+  /// </summary>
+  /// <remarks>
+  ///   If an exception is thrown during the creation of the object, acquire is cancelled (semaphore is released).
+  /// </remarks>
+  /// <returns>A guard that contains the acquired object.</returns>
+  [PublicAPI]
+  public Guard Get()
+    => GetAsync()
+       .GetAwaiter()
+       .GetResult();
+
 
   /// <summary>
   ///   Acquire a new object from the pool, creating it if there is no object in the pool.
@@ -348,8 +364,8 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <typeparam name="TOut">Return type of <paramref name="f" /></typeparam>
   /// <returns>Return value of <paramref name="f" /></returns>
   [PublicAPI]
-  public async ValueTask<TOut> CallWithAsync<TOut>(Func<T, TOut>     f,
-                                                   CancellationToken cancellationToken = default)
+  public async ValueTask<TOut> WithInstanceAsync<TOut>(Func<T, TOut>     f,
+                                                       CancellationToken cancellationToken = default)
   {
     await using var guard = await GetAsync(cancellationToken)
                               .ConfigureAwait(false);
@@ -368,8 +384,8 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
   /// <returns>Task representing the completion of the call</returns>
   [PublicAPI]
-  public async ValueTask CallWithAsync(Action<T>         f,
-                                       CancellationToken cancellationToken = default)
+  public async ValueTask WithInstanceAsync(Action<T>         f,
+                                           CancellationToken cancellationToken = default)
   {
     await using var guard = await GetAsync(cancellationToken)
                               .ConfigureAwait(false);
@@ -388,8 +404,8 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <typeparam name="TOut">Return type of <paramref name="f" /></typeparam>
   /// <returns>Return value of <paramref name="f" /></returns>
   [PublicAPI]
-  public async ValueTask<TOut> CallWithAsync<TOut>(Func<T, ValueTask<TOut>> f,
-                                                   CancellationToken        cancellationToken = default)
+  public async ValueTask<TOut> WithInstanceAsync<TOut>(Func<T, ValueTask<TOut>> f,
+                                                       CancellationToken        cancellationToken = default)
   {
     await using var guard = await GetAsync(cancellationToken)
                               .ConfigureAwait(false);
@@ -408,14 +424,45 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
   /// <returns>Task representing the completion of the call</returns>
   [PublicAPI]
-  public async ValueTask CallWithAsync(Func<T, ValueTask> f,
-                                       CancellationToken  cancellationToken = default)
+  public async ValueTask WithInstanceAsync(Func<T, ValueTask> f,
+                                           CancellationToken  cancellationToken = default)
   {
     await using var guard = await GetAsync(cancellationToken)
                               .ConfigureAwait(false);
 
     await f(guard.Value)
       .ConfigureAwait(false);
+  }
+
+
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   Once the object has been created, <paramref name="f" /> is called with the acquired object.
+  /// </summary>
+  /// <param name="f">Function to call with the acquired object</param>
+  /// <typeparam name="TOut">Return type of <paramref name="f" /></typeparam>
+  /// <returns>Return value of <paramref name="f" /></returns>
+  [PublicAPI]
+  public TOut WithInstance<TOut>(Func<T, TOut> f)
+  {
+    using var guard = Get();
+    return f(guard.Value);
+  }
+
+
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   Once the object has been created, <paramref name="f" /> is called with the acquired object.
+  /// </summary>
+  /// <param name="f">Function to call with the acquired object</param>
+  /// <returns>Task representing the completion of the call</returns>
+  [PublicAPI]
+  public void WithInstance(Action<T> f)
+  {
+    using var guard = Get();
+    f(guard.Value);
   }
 
   /// <summary>
