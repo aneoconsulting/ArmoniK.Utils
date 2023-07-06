@@ -15,7 +15,6 @@
 // limitations under the License.
 
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,11 +22,22 @@ using NUnit.Framework;
 
 namespace ArmoniK.Utils.Tests;
 
+// ReSharper disable MethodHasAsyncOverload
+// ReSharper disable UseAwaitUsing
 public class ObjectPoolTest
 {
+  public enum UseMethod
+  {
+    Get,
+    WithFunc,
+    WithAction,
+  }
+
   [Test]
-  public async Task ReuseObjectsFromPoolShouldSucceed([Values] bool asyncDispose,
-                                                      [Values] bool asyncFactory)
+  public async Task ReuseObjectsFromPoolShouldSucceed([Values] bool      asyncFactory,
+                                                      [Values] UseMethod useMethod,
+                                                      [Values] bool      asyncUse,
+                                                      [Values] bool      asyncContext)
   {
     var nbCreated = 0;
     await using var pool = asyncFactory
@@ -36,62 +46,98 @@ public class ObjectPoolTest
                                                     _) => new ValueTask<bool>(i % 2 == 0))
                              : new ObjectPool<int>(() => nbCreated++,
                                                    i => i % 2 == 0);
+
+    // ReSharper disable AccessToDisposedClosure
+    async Task CheckAcquire(int created,
+                            int ref0,
+                            int ref1)
     {
-      var obj0 = await pool.GetAsync()
-                           .ConfigureAwait(false);
-      var obj1 = await pool.GetAsync()
-                           .ConfigureAwait(false);
+      var val0 = -1;
+      var val1 = -1;
+      switch (useMethod, asyncContext, asyncUse)
+      {
+        case (UseMethod.Get, _, _):
+          var obj0 = asyncUse
+                       ? await pool.GetAsync()
+                                   .ConfigureAwait(false)
+                       : pool.Get();
+          var obj1 = asyncUse
+                       ? await pool.GetAsync()
+                                   .ConfigureAwait(false)
+                       : pool.Get();
+
+          val0 = obj0;
+          val1 = obj1;
+
+          if (asyncContext)
+          {
+            await obj0.DisposeAsync()
+                      .ConfigureAwait(false);
+            await obj1.DisposeAsync()
+                      .ConfigureAwait(false);
+          }
+          else
+          {
+            obj0.Dispose();
+            obj1.Dispose();
+          }
+
+          break;
+        case (UseMethod.WithFunc, false, _):
+          (val0, val1) = pool.WithInstance(x => pool.WithInstance(y => (x, y)));
+          break;
+        case (UseMethod.WithFunc, true, false):
+          (val0, val1) = await pool.WithInstanceAsync(x => pool.WithInstanceAsync(y => (x, y))
+                                                               .AsTask()
+                                                               .Result)
+                                   .ConfigureAwait(false);
+          break;
+        case (UseMethod.WithFunc, true, true):
+          (val0, val1) = await pool.WithInstanceAsync(x => pool.WithInstanceAsync(y => new ValueTask<(int, int)>((x, y))))
+                                   .ConfigureAwait(false);
+          break;
+        case (UseMethod.WithAction, false, _):
+          pool.WithInstance(x => pool.WithInstance(y =>
+                                                   {
+                                                     (val0, val1) = (x, y);
+                                                   }));
+          break;
+        case (UseMethod.WithAction, true, false):
+          await pool.WithInstanceAsync(x => pool.WithInstanceAsync(y =>
+                                                                   {
+                                                                     (val0, val1) = (x, y);
+                                                                   })
+                                                .AsTask()
+                                                .Wait())
+                    .ConfigureAwait(false);
+          break;
+        case (UseMethod.WithAction, true, true):
+          await pool.WithInstanceAsync(x => pool.WithInstanceAsync(y =>
+                                                                   {
+                                                                     (val0, val1) = (x, y);
+                                                                   }))
+                    .ConfigureAwait(false);
+          break;
+      }
+      // ReSharper restore AccessToDisposedClosure
+
 
       Assert.That(nbCreated,
-                  Is.EqualTo(2));
-      Assert.That(obj0.Value,
-                  Is.EqualTo(0));
-      Assert.That(obj1.Value,
-                  Is.EqualTo(1));
-
-      if (asyncDispose)
-      {
-        await obj0.DisposeAsync()
-                  .ConfigureAwait(false);
-        await obj1.DisposeAsync()
-                  .ConfigureAwait(false);
-      }
-      else
-      {
-        // ReSharper disable once MethodHasAsyncOverload
-        obj0.Dispose();
-        // ReSharper disable once MethodHasAsyncOverload
-        obj1.Dispose();
-      }
+                  Is.EqualTo(created));
+      Assert.That(val0,
+                  Is.EqualTo(ref0));
+      Assert.That(val1,
+                  Is.EqualTo(ref1));
     }
 
-    {
-      var obj0 = await pool.GetAsync()
-                           .ConfigureAwait(false);
-      var obj1 = await pool.GetAsync()
-                           .ConfigureAwait(false);
-      Assert.That(nbCreated,
-                  Is.EqualTo(3));
-      Assert.That(obj0.Value,
-                  Is.EqualTo(0));
-      Assert.That(obj1.Value,
-                  Is.EqualTo(2));
-
-      if (asyncDispose)
-      {
-        await obj0.DisposeAsync()
-                  .ConfigureAwait(false);
-        await obj1.DisposeAsync()
-                  .ConfigureAwait(false);
-      }
-      else
-      {
-        // ReSharper disable once MethodHasAsyncOverload
-        obj0.Dispose();
-        // ReSharper disable once MethodHasAsyncOverload
-        obj1.Dispose();
-      }
-    }
+    await CheckAcquire(2,
+                       0,
+                       1)
+      .ConfigureAwait(false);
+    await CheckAcquire(3,
+                       0,
+                       2)
+      .ConfigureAwait(false);
   }
 
   [Test]
@@ -126,7 +172,6 @@ public class ObjectPoolTest
     }
     else
     {
-      // ReSharper disable once MethodHasAsyncOverload
       pool.Dispose();
     }
 
@@ -166,7 +211,6 @@ public class ObjectPoolTest
     }
     else
     {
-      // ReSharper disable once MethodHasAsyncOverload
       obj.Dispose();
     }
 
@@ -180,7 +224,6 @@ public class ObjectPoolTest
     }
     else
     {
-      // ReSharper disable once MethodHasAsyncOverload
       pool.Dispose();
     }
 
@@ -194,8 +237,12 @@ public class ObjectPoolTest
                                                   1,
                                                   4)]
                                           int? max,
-                                          [Values] bool asyncFactory)
+                                          [Values] bool      asyncFactory,
+                                          [Values] UseMethod useMethod,
+                                          [Values] bool      asyncUse,
+                                          [Values] bool      asyncContext)
   {
+    // ReSharper disable AccessToDisposedClosure
     // ReSharper disable ConvertTypeCheckPatternToNullCheck
     await using var pool = (max, asyncFactory) switch
                            {
@@ -209,31 +256,125 @@ public class ObjectPoolTest
     // ReSharper restore ConvertTypeCheckPatternToNullCheck
 
     var n = (max ?? -1) < 0
-              ? 1000
+              ? 100
               : max;
 
-    for (var t = 0; t < 2; t += 1)
+
+    Func<Func<ValueTask>, ValueTask> recurse = (useMethod, asyncContext, asyncUse) switch
+                                               {
+                                                 (UseMethod.Get, false, false) => async f =>
+                                                                                  {
+                                                                                    using var guard = pool.Get();
+                                                                                    await f()
+                                                                                      .ConfigureAwait(false);
+                                                                                  },
+                                                 (UseMethod.Get, false, true) => async f =>
+                                                                                 {
+                                                                                   using var guard = await pool.GetAsync()
+                                                                                                               .ConfigureAwait(false);
+                                                                                   await f()
+                                                                                     .ConfigureAwait(false);
+                                                                                 },
+                                                 (UseMethod.Get, true, false) => async f =>
+                                                                                 {
+                                                                                   await using var guard = pool.Get();
+                                                                                   await f()
+                                                                                     .ConfigureAwait(false);
+                                                                                 },
+                                                 (UseMethod.Get, true, true) => async f =>
+                                                                                {
+                                                                                  await using var guard = await pool.GetAsync()
+                                                                                                                    .ConfigureAwait(false);
+                                                                                  await f()
+                                                                                    .ConfigureAwait(false);
+                                                                                },
+                                                 (UseMethod.WithFunc, false, _) => f =>
+                                                                                   {
+                                                                                     _ = pool.WithInstance(x =>
+                                                                                                           {
+                                                                                                             f()
+                                                                                                               .AsTask()
+                                                                                                               .Wait();
+                                                                                                             return x;
+                                                                                                           });
+                                                                                     return new ValueTask();
+                                                                                   },
+                                                 (UseMethod.WithFunc, true, false) => async f =>
+                                                                                      {
+                                                                                        _ = await pool.WithInstanceAsync(x =>
+                                                                                                                         {
+                                                                                                                           f()
+                                                                                                                             .AsTask()
+                                                                                                                             .Wait();
+                                                                                                                           return x;
+                                                                                                                         })
+                                                                                                      .ConfigureAwait(false);
+                                                                                      },
+                                                 (UseMethod.WithFunc, true, true) => async f =>
+                                                                                     {
+                                                                                       _ = await pool.WithInstanceAsync(async x =>
+                                                                                                                        {
+                                                                                                                          await f()
+                                                                                                                            .ConfigureAwait(false);
+                                                                                                                          return x;
+                                                                                                                        })
+                                                                                                     .ConfigureAwait(false);
+                                                                                     },
+                                                 (UseMethod.WithAction, false, _) => f =>
+                                                                                     {
+                                                                                       pool.WithInstance(_ => f()
+                                                                                                              .AsTask()
+                                                                                                              .Wait());
+                                                                                       return new ValueTask();
+                                                                                     },
+                                                 (UseMethod.WithAction, true, false) => async f =>
+                                                                                        {
+                                                                                          await pool.WithInstanceAsync(_ => f()
+                                                                                                                            .AsTask()
+                                                                                                                            .Wait())
+                                                                                                    .ConfigureAwait(false);
+                                                                                        },
+                                                 (UseMethod.WithAction, true, true) => async f =>
+                                                                                       {
+                                                                                         await pool.WithInstanceAsync(async _ => await f()
+                                                                                                                                   .ConfigureAwait(false))
+                                                                                                   .ConfigureAwait(false);
+                                                                                       },
+                                                 _ => throw new ArgumentOutOfRangeException(nameof(useMethod)),
+                                               };
+
+
+    for (var t = 0; t < 4; t += 1)
     {
-      var guards = new List<ObjectPool<int>.Guard>();
+      var called = false;
+      var i      = 0;
 
-      for (var i = 0; i < n; i += 1)
+      async ValueTask RecurseBody()
       {
-        guards.Add(await pool.GetAsync()
-                             .ConfigureAwait(false));
+        // ReSharper disable once AccessToModifiedClosure
+        if (i++ < n)
+        {
+          await recurse(RecurseBody)
+            .ConfigureAwait(false);
+        }
+        else
+        {
+          called = true;
+
+          if (max > 0)
+          {
+            Assert.That(!await IsPoolAvailableAsync(pool)
+                           .ConfigureAwait(false));
+          }
+        }
       }
 
-      if (max > 0)
-      {
-        Assert.That(!await IsPoolAvailableAsync(pool)
-                       .ConfigureAwait(false));
-      }
+      await RecurseBody()
+        .ConfigureAwait(false);
 
-      foreach (var guard in guards)
-      {
-        await guard.DisposeAsync()
-                   .ConfigureAwait(false);
-      }
+      Assert.That(called);
     }
+    // ReSharper restore AccessToDisposedClosure
   }
 
   [Test]
@@ -489,9 +630,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task PoolDisposeWithGuardAlive(bool asyncDispose)
+  public async Task PoolDisposeWithGuardAlive([Values] bool asyncDispose)
   {
     var pool = new ObjectPool<ValueTuple>(_ => new ValueTask<ValueTuple>(new ValueTuple()));
 
@@ -519,16 +658,8 @@ public class ObjectPoolTest
 
 
   [Test]
-  [TestCase(false,
-            false)]
-  [TestCase(false,
-            true)]
-  [TestCase(true,
-            false)]
-  [TestCase(true,
-            true)]
-  public async Task PoolDisposeThrow(bool asyncDisposable,
-                                     bool asyncDispose)
+  public async Task PoolDisposeThrow([Values] bool asyncDisposable,
+                                     [Values] bool asyncDispose)
   {
     var nbDisposed = 0;
 
@@ -592,16 +723,8 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [TestCase(false,
-            false)]
-  [TestCase(false,
-            true)]
-  [TestCase(true,
-            false)]
-  [TestCase(true,
-            true)]
-  public async Task ReturnDisposeThrow(bool asyncDisposable,
-                                       bool asyncDispose)
+  public async Task ReturnDisposeThrow([Values] bool asyncDisposable,
+                                       [Values] bool asyncDispose)
   {
     var pool = new ObjectPool<object>(_ => new ValueTask<object>(asyncDisposable
                                                                    ? new AsyncDisposeAction(() => throw new ApplicationException())
