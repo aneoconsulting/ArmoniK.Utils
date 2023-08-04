@@ -64,8 +64,18 @@ internal static class ParallelSelectInternal
                                                             .ConfigureAwait(false);
                                                    var task = Task.Run(async () =>
                                                                        {
-                                                                         var res = await func(x)
-                                                                                     .ConfigureAwait(false);
+                                                                         TOutput res;
+                                                                         try
+                                                                         {
+                                                                           res = await func(x)
+                                                                                   .ConfigureAwait(false);
+                                                                         }
+                                                                         catch
+                                                                         {
+                                                                           cts.Cancel();
+                                                                           throw;
+                                                                         }
+
                                                                          sem.Release();
                                                                          return res;
                                                                        },
@@ -83,6 +93,11 @@ internal static class ParallelSelectInternal
         await tasks.WhenAll()
                    .ConfigureAwait(false);
       }
+      catch
+      {
+        cts.Cancel();
+        throw;
+      }
       finally
       {
         channel.Writer.Complete();
@@ -92,7 +107,7 @@ internal static class ParallelSelectInternal
     var run = Task.Run(Run,
                        cts.Token);
 
-    await foreach (var res in channel.Reader.ToAsyncEnumerable(cts.Token))
+    await foreach (var res in channel.Reader.ToAsyncEnumerable(CancellationToken.None))
     {
       yield return await res.ConfigureAwait(false);
     }
@@ -100,6 +115,7 @@ internal static class ParallelSelectInternal
     await run.ConfigureAwait(false);
 
     sem.Dispose();
+    cts.Dispose();
   }
 
   /// <summary>
@@ -137,8 +153,18 @@ internal static class ParallelSelectInternal
                                                             .ConfigureAwait(false);
                                                    return Task.Run(async () =>
                                                                    {
-                                                                     var res = await func(x)
-                                                                                 .ConfigureAwait(false);
+                                                                     TOutput res;
+                                                                     try
+                                                                     {
+                                                                       res = await func(x)
+                                                                               .ConfigureAwait(false);
+                                                                     }
+                                                                     catch (Exception e)
+                                                                     {
+                                                                       cts.Cancel();
+                                                                       throw;
+                                                                     }
+
                                                                      sem.Release();
                                                                      await channel.Writer.WriteAsync(res,
                                                                                                      cts.Token)
@@ -156,18 +182,20 @@ internal static class ParallelSelectInternal
       }
       finally
       {
-        channel.Writer.Complete();
+        _ = channel.Writer.TryComplete();
       }
     }
 
     var run = Task.Run(Run,
                        cts.Token);
 
-    await foreach (var res in channel.Reader.ToAsyncEnumerable(cts.Token))
+    await foreach (var res in channel.Reader.ToAsyncEnumerable(CancellationToken.None))
     {
       yield return res;
     }
 
     await run.ConfigureAwait(false);
+
+    cts.Dispose();
   }
 }
