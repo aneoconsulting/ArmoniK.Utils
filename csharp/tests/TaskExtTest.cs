@@ -188,8 +188,8 @@ public class TaskExtTest
            _                                       => throw new ArgumentOutOfRangeException(),
          };
 
-    public void OnCompleted(Action<object>                  continuation,
-                            object                          state,
+    public void OnCompleted(Action<object?>                 continuation,
+                            object?                         state,
                             short                           token,
                             ValueTaskSourceOnCompletedFlags flags)
       => Task.Factory.StartNew(async () =>

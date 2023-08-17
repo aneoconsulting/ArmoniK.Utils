@@ -186,13 +186,12 @@ public class ParallelSelectExtTest
     var maxCounter = 0;
 
     // We use a larger wait for infinite parallelism to ensure we can actually spawn thousands of tasks in parallel
-    var identity = parallelism < 0
-                     ? AsyncIdentity(200,
-                                     400,
-                                     blocking)
-                     : AsyncIdentity(50,
-                                     100,
-                                     blocking);
+    var (delayMin, delayMax) = parallelism < 0
+                                 ? (500, 1000)
+                                 : (50, 100);
+    var identity = AsyncIdentity(delayMin,
+                                 delayMax,
+                                 blocking);
 
     async Task<int> F(int x)
     {
@@ -412,7 +411,7 @@ public class ParallelSelectExtTest
 
     // We use a larger wait for infinite parallelism to ensure we can actually spawn thousands of tasks in parallel
     var (delayMin, delayMax) = parallelism < 0
-                                 ? (200, 400)
+                                 ? (500, 1000)
                                  : (50, 100);
     var identity = AsyncIdentity(delayMin,
                                  delayMax,
