@@ -1,4 +1,4 @@
-﻿// This file is part of the ArmoniK project
+// This file is part of the ArmoniK project
 //
 // Copyright (C) ANEO, 2022-2023.All rights reserved.
 //
@@ -38,6 +38,14 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
   private Action? deferred_;
 
   /// <summary>
+  ///   Constructs a Disposable object that does nothing
+  /// </summary>
+  [PublicAPI]
+  public Deferrer()
+  {
+  }
+
+  /// <summary>
   ///   Constructs a Disposable object that calls <paramref name="deferred" /> when disposed
   /// </summary>
   /// <param name="deferred">Action to be called at Dispose</param>
@@ -52,10 +60,6 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
   [PublicAPI]
   public Deferrer(Func<ValueTask> deferred)
     => asyncDeferred_ = deferred;
-
-  private Deferrer()
-  {
-  }
 
   /// <inheritdoc />
   public ValueTask DisposeAsync()
@@ -89,6 +93,41 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
     }
   }
 
+  /// <summary>
+  ///   Reset the Disposable to does nothing when disposed.
+  ///   The previous action will not be called.
+  /// </summary>
+  [PublicAPI]
+  public void Reset()
+  {
+    asyncDeferred_ = null;
+    deferred_      = null;
+  }
+
+  /// <summary>
+  ///   Reset the Disposable to calls <paramref name="deferred" /> when disposed.
+  ///   The previous action will not be called.
+  /// </summary>
+  /// <param name="deferred">Action to be called at Dispose</param>
+  [PublicAPI]
+  public void Reset(Action deferred)
+  {
+    asyncDeferred_ = null;
+    deferred_      = deferred;
+  }
+
+  /// <summary>
+  ///   Reset the Disposable to calls <paramref name="deferred" /> when disposed.
+  ///   The previous action will not be called.
+  /// </summary>
+  /// <param name="deferred">Function to be called at Dispose</param>
+  [PublicAPI]
+  public void Reset(Func<ValueTask> deferred)
+  {
+    deferred_      = null;
+    asyncDeferred_ = deferred;
+  }
+
   // Dispose using the synchronous function
   private void DisposeCore()
   {
@@ -96,6 +135,10 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
     // https://learn.microsoft.com/en-us/dotnet/standard/security/security-and-race-conditions#race-conditions-in-the-dispose-method
     var deferred = Interlocked.Exchange(ref deferred_,
                                         null);
+
+    // Ensure asyncDeferred_ is not called even in case of an unsynchronized Reset
+    // Synchronization is done thanks to the Interlocked.Exchange
+    asyncDeferred_ = null;
 
     if (deferred is null)
     {
@@ -113,6 +156,10 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
     // https://learn.microsoft.com/en-us/dotnet/standard/security/security-and-race-conditions#race-conditions-in-the-dispose-method
     var asyncDeferred = Interlocked.Exchange(ref asyncDeferred_,
                                              null);
+
+    // Ensure deferred_ is not called even in case of an unsynchronized Reset
+    // Synchronization is done thanks to the Interlocked.Exchange
+    deferred_ = null;
 
     if (asyncDeferred is null)
     {

@@ -1,4 +1,4 @@
-﻿// This file is part of the ArmoniK project
+// This file is part of the ArmoniK project
 //
 // Copyright (C) ANEO, 2022-2023.All rights reserved.
 //
@@ -34,9 +34,13 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public void DeferShouldWork(bool async)
+  public void DeferDefaultShouldWork()
+  {
+    using var defer = new Deferrer();
+  }
+
+  [Test]
+  public void DeferShouldWork([Values] bool async)
   {
     var i = 1;
     using (DisposableCreate(async,
@@ -53,9 +57,7 @@ public class DeferTest
 
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public void RedundantDeferShouldWork(bool async)
+  public void RedundantDeferShouldWork([Values] bool async)
   {
     var i = 1;
 
@@ -78,9 +80,56 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task DeferShouldBeRaceConditionFree(bool async)
+  public void DeferResetShouldWork([Values] bool? firstAsync,
+                                   [Values] bool? secondAsync)
+  {
+    var first  = false;
+    var second = false;
+
+    using (var disposable = DeferrerCreate(firstAsync,
+                                           0,
+                                           () => first = true))
+    {
+      switch (secondAsync)
+      {
+        case null:
+          disposable.Reset();
+          break;
+        case false:
+          disposable.Reset(() => second = true);
+          break;
+        case true:
+          disposable.Reset(async () =>
+                           {
+                             await Task.Yield();
+                             second = true;
+                           });
+          break;
+      }
+    }
+
+    // Force collection to ensure that previous action is not called
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+
+    Assert.That(first,
+                Is.False);
+    if (secondAsync is null)
+    {
+      Assert.That(second,
+                  Is.False);
+    }
+    else
+    {
+      Assert.That(second,
+                  Is.True);
+    }
+  }
+
+  [Test]
+  public async Task DeferShouldBeRaceConditionFree([Values] bool async)
   {
     var i = 1;
 
@@ -99,9 +148,7 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public void RedundantCopyDeferShouldWork(bool async)
+  public void RedundantCopyDeferShouldWork([Values] bool async)
   {
     var i = 1;
 
@@ -123,9 +170,7 @@ public class DeferTest
     => new(f());
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public void DeferShouldWorkWhenCollected(bool async)
+  public void DeferShouldWorkWhenCollected([Values] bool async)
   {
     var i = 1;
 
@@ -160,9 +205,7 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public void WrappedDeferShouldWork(bool async)
+  public void WrappedDeferShouldWork([Values] bool async)
   {
     var i = 1;
     using (new DisposableWrapper(DisposableCreate(async,
@@ -187,9 +230,13 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task AsyncDeferShouldWork(bool async)
+  public async Task AsyncDeferDefaultShouldWork()
+  {
+    await using var defer = new Deferrer();
+  }
+
+  [Test]
+  public async Task AsyncDeferShouldWork([Values] bool async)
   {
     var i = 1;
     await using (AsyncDisposableCreate(async,
@@ -206,9 +253,7 @@ public class DeferTest
 
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task RedundantAsyncDeferShouldWork(bool async)
+  public async Task RedundantAsyncDeferShouldWork([Values] bool async)
   {
     var i = 1;
 
@@ -233,9 +278,56 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task AsyncDeferShouldBeRaceConditionFree(bool async)
+  public async Task AsyncDeferResetShouldWork([Values] bool? firstAsync,
+                                              [Values] bool? secondAsync)
+  {
+    var first  = false;
+    var second = false;
+
+    await using (var disposable = DeferrerCreate(firstAsync,
+                                                 0,
+                                                 () => first = true))
+    {
+      switch (secondAsync)
+      {
+        case null:
+          disposable.Reset();
+          break;
+        case false:
+          disposable.Reset(() => second = true);
+          break;
+        case true:
+          disposable.Reset(async () =>
+                           {
+                             await Task.Yield();
+                             second = true;
+                           });
+          break;
+      }
+    }
+
+    // Force collection to ensure that previous action is not called
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+
+    Assert.That(first,
+                Is.False);
+    if (secondAsync is null)
+    {
+      Assert.That(second,
+                  Is.False);
+    }
+    else
+    {
+      Assert.That(second,
+                  Is.True);
+    }
+  }
+
+  [Test]
+  public async Task AsyncDeferShouldBeRaceConditionFree([Values] bool async)
   {
     var i = 1;
 
@@ -256,9 +348,7 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task RedundantCopyAsyncDeferShouldWork(bool async)
+  public async Task RedundantCopyAsyncDeferShouldWork([Values] bool async)
   {
     var i = 1;
 
@@ -280,9 +370,7 @@ public class DeferTest
     => new(f());
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public void AsyncDeferShouldWorkWhenCollected(bool async)
+  public void AsyncDeferShouldWorkWhenCollected([Values] bool async)
   {
     var i = 1;
 
@@ -317,9 +405,7 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task WrappedAsyncDeferShouldWork(bool async)
+  public async Task WrappedAsyncDeferShouldWork([Values] bool async)
   {
     var i = 1;
     await using (new AsyncDisposableWrapper(AsyncDisposableCreate(async,
@@ -334,50 +420,53 @@ public class DeferTest
                 Is.EqualTo(2));
   }
 
-  private static Deferrer DeferrerCreate(bool   async,
+  private static Deferrer DeferrerCreate(bool?  async,
                                          int    delay,
                                          Action f)
   {
-    if (async)
+    switch (async)
     {
-      return new Deferrer(async () =>
-                          {
-                            if (delay > 0)
+      case null:
+        return new Deferrer();
+      case false:
+        return new Deferrer(() =>
                             {
-                              await Task.Delay(delay);
-                            }
-                            else
-                            {
-                              await Task.Yield();
-                            }
+                              if (delay > 0)
+                              {
+                                Thread.Sleep(delay);
+                              }
+                              else
+                              {
+                                Thread.Yield();
+                              }
 
-                            f();
-                          });
+                              f();
+                            });
+      case true:
+        return new Deferrer(async () =>
+                            {
+                              if (delay > 0)
+                              {
+                                await Task.Delay(delay);
+                              }
+                              else
+                              {
+                                await Task.Yield();
+                              }
+
+                              f();
+                            });
     }
-
-    return new Deferrer(() =>
-                        {
-                          if (delay > 0)
-                          {
-                            Thread.Sleep(delay);
-                          }
-                          else
-                          {
-                            Thread.Yield();
-                          }
-
-                          f();
-                        });
   }
 
-  private static IDisposable DisposableCreate(bool   async,
+  private static IDisposable DisposableCreate(bool?  async,
                                               int    delay,
                                               Action f)
     => DeferrerCreate(async,
                       delay,
                       f);
 
-  private static IAsyncDisposable AsyncDisposableCreate(bool   async,
+  private static IAsyncDisposable AsyncDisposableCreate(bool?  async,
                                                         int    delay,
                                                         Action f)
     => DeferrerCreate(async,
