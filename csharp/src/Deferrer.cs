@@ -33,9 +33,9 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
   [PublicAPI]
   public static readonly Deferrer Empty = new();
 
-  private Func<ValueTask>? asyncDeferred_;
-
-  private Action? deferred_;
+  // volatile are used to avoid double call when disposing at the same time as resetting
+  private volatile Func<ValueTask>? asyncDeferred_;
+  private volatile Action?          deferred_;
 
   /// <summary>
   ///   Constructs a Disposable object that does nothing
@@ -50,7 +50,7 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
   /// </summary>
   /// <param name="deferred">Action to be called at Dispose</param>
   [PublicAPI]
-  public Deferrer(Action deferred)
+  public Deferrer(Action? deferred)
     => deferred_ = deferred;
 
   /// <summary>
@@ -58,7 +58,7 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
   /// </summary>
   /// <param name="deferred">Function to be called at Dispose</param>
   [PublicAPI]
-  public Deferrer(Func<ValueTask> deferred)
+  public Deferrer(Func<ValueTask>? deferred)
     => asyncDeferred_ = deferred;
 
   /// <inheritdoc />
@@ -136,10 +136,6 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
     var deferred = Interlocked.Exchange(ref deferred_,
                                         null);
 
-    // Ensure asyncDeferred_ is not called even in case of an unsynchronized Reset
-    // Synchronization is done thanks to the Interlocked.Exchange
-    asyncDeferred_ = null;
-
     if (deferred is null)
     {
       return;
@@ -156,10 +152,6 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
     // https://learn.microsoft.com/en-us/dotnet/standard/security/security-and-race-conditions#race-conditions-in-the-dispose-method
     var asyncDeferred = Interlocked.Exchange(ref asyncDeferred_,
                                              null);
-
-    // Ensure deferred_ is not called even in case of an unsynchronized Reset
-    // Synchronization is done thanks to the Interlocked.Exchange
-    deferred_ = null;
 
     if (asyncDeferred is null)
     {
