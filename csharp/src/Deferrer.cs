@@ -23,8 +23,13 @@ using JetBrains.Annotations;
 namespace ArmoniK.Utils;
 
 /// <summary>
-///   Wraps an action that will be called when the object is disposed
+///   Wraps an action that will be called when the object is disposed.
 /// </summary>
+/// <remarks>
+///   If the deferrer is not disposed, effort is made to call the action in the finalizer.
+///   If you need conditional disposal, you can reset the deferrer with <see cref="Reset" /> to another action, or empty.
+///   A disposable object can also be passed to the deferrer if you need conditional dispose of a disposable object.
+/// </remarks>
 public sealed class Deferrer : IDisposable, IAsyncDisposable
 {
   /// <summary>
