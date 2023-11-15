@@ -1,4 +1,4 @@
-﻿// This file is part of the ArmoniK project
+// This file is part of the ArmoniK project
 //
 // Copyright (C) ANEO, 2022-2023.All rights reserved.
 //
@@ -23,8 +23,13 @@ using JetBrains.Annotations;
 namespace ArmoniK.Utils;
 
 /// <summary>
-///   Wraps an action that will be called when the object is disposed
+///   Wraps an action that will be called when the object is disposed.
 /// </summary>
+/// <remarks>
+///   If the deferrer is not disposed, effort is made to call the action in the finalizer.
+///   If you need conditional disposal, you can reset the deferrer with <see cref="Reset" /> to another action, or empty.
+///   A disposable object can also be passed to the deferrer if you need conditional dispose of a disposable object.
+/// </remarks>
 public sealed class Deferrer : IDisposable, IAsyncDisposable
 {
   /// <summary>
@@ -33,96 +38,152 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
   [PublicAPI]
   public static readonly Deferrer Empty = new();
 
-  private Func<ValueTask>? asyncDeferred_;
+  private object? deferred_;
 
-  private Action? deferred_;
+  /// <summary>
+  ///   Constructs a Disposable object that does nothing
+  /// </summary>
+  [PublicAPI]
+  public Deferrer()
+  {
+  }
 
   /// <summary>
   ///   Constructs a Disposable object that calls <paramref name="deferred" /> when disposed
   /// </summary>
   /// <param name="deferred">Action to be called at Dispose</param>
   [PublicAPI]
-  public Deferrer(Action deferred)
+  public Deferrer(Action? deferred)
     => deferred_ = deferred;
 
   /// <summary>
-  ///   Constructs a Disposable object that calls <paramref name="deferred" /> when disposed
+  ///   Constructs a Disposable object that calls <paramref name="asyncDeferred" /> when disposed
   /// </summary>
-  /// <param name="deferred">Function to be called at Dispose</param>
+  /// <param name="asyncDeferred">Function to be called at Dispose</param>
   [PublicAPI]
-  public Deferrer(Func<ValueTask> deferred)
-    => asyncDeferred_ = deferred;
+  public Deferrer(Func<ValueTask>? asyncDeferred)
+    => deferred_ = asyncDeferred;
 
-  private Deferrer()
-  {
-  }
+  /// <summary>
+  ///   Constructs a Disposable object that disposes <paramref name="disposable" /> when disposed
+  /// </summary>
+  /// <param name="disposable">Action to be called at Dispose</param>
+  [PublicAPI]
+  public Deferrer(IDisposable? disposable)
+    => deferred_ = disposable;
 
-  /// <inheritdoc />
-  public ValueTask DisposeAsync()
-  {
-    // Check asynchronous action first
-    if (asyncDeferred_ is not null)
-    {
-      return DisposeAsyncCore();
-    }
-
-    if (deferred_ is not null)
-    {
-      DisposeCore();
-    }
-
-    return new ValueTask();
-  }
+  /// <summary>
+  ///   Constructs a Disposable object that disposes <paramref name="asyncDisposable" /> when disposed
+  /// </summary>
+  /// <param name="asyncDisposable">Action to be called at Dispose</param>
+  [PublicAPI]
+  public Deferrer(IAsyncDisposable? asyncDisposable)
+    => deferred_ = asyncDisposable;
 
   /// <inheritdoc />
-  public void Dispose()
-  {
-    // Check synchronous action first
-    if (deferred_ is not null)
-    {
-      DisposeCore();
-    }
-    else if (asyncDeferred_ is not null)
-    {
-      DisposeAsyncCore()
-        .WaitSync();
-    }
-  }
-
-  // Dispose using the synchronous function
-  private void DisposeCore()
+  public async ValueTask DisposeAsync()
   {
     // Beware of race conditions:
     // https://learn.microsoft.com/en-us/dotnet/standard/security/security-and-race-conditions#race-conditions-in-the-dispose-method
     var deferred = Interlocked.Exchange(ref deferred_,
                                         null);
 
-    if (deferred is null)
+    switch (deferred)
     {
-      return;
+      // Check asynchronous first
+      case Func<ValueTask> asyncF:
+        await asyncF()
+          .ConfigureAwait(false);
+        break;
+      case Action f:
+        f();
+        break;
+      // As Func and Action are sealed, it is not possible to be both Action and Disposable
+      case IAsyncDisposable asyncDisposable:
+        await asyncDisposable.DisposeAsync()
+                             .ConfigureAwait(false);
+        break;
+      case IDisposable disposable:
+        disposable.Dispose();
+        break;
     }
 
-    deferred();
     GC.SuppressFinalize(this);
   }
 
-  // Dispose using the asynchronous function
-  private async ValueTask DisposeAsyncCore()
+  /// <inheritdoc />
+  public void Dispose()
   {
     // Beware of race conditions:
     // https://learn.microsoft.com/en-us/dotnet/standard/security/security-and-race-conditions#race-conditions-in-the-dispose-method
-    var asyncDeferred = Interlocked.Exchange(ref asyncDeferred_,
-                                             null);
-
-    if (asyncDeferred is null)
+    var deferred = Interlocked.Exchange(ref deferred_,
+                                        null);
+    switch (deferred)
     {
-      return;
+      // Check synchronous first
+      case Action f:
+        f();
+        break;
+      case Func<ValueTask> asyncF:
+        asyncF()
+          .WaitSync();
+        break;
+      // As Func and Action are sealed, it is not possible to be both Action and Disposable
+      case IDisposable disposable:
+        disposable.Dispose();
+        break;
+      case IAsyncDisposable asyncDisposable:
+        asyncDisposable.DisposeAsync()
+                       .WaitSync();
+        break;
     }
-
-    await asyncDeferred();
 
     GC.SuppressFinalize(this);
   }
+
+  /// <summary>
+  ///   Reset the Disposable to does nothing when disposed.
+  ///   The previous action will not be called.
+  /// </summary>
+  [PublicAPI]
+  public void Reset()
+    => deferred_ = null;
+
+  /// <summary>
+  ///   Reset the Disposable to calls <paramref name="deferred" /> when disposed.
+  ///   The previous action will not be called.
+  /// </summary>
+  /// <param name="deferred">Action to be called at Dispose</param>
+  [PublicAPI]
+  public void Reset(Action? deferred)
+    => deferred_ = deferred;
+
+  /// <summary>
+  ///   Reset the Disposable to calls <paramref name="asyncDeferred" /> when disposed.
+  ///   The previous action will not be called.
+  /// </summary>
+  /// <param name="asyncDeferred">Function to be called at Dispose</param>
+  [PublicAPI]
+  public void Reset(Func<ValueTask>? asyncDeferred)
+    => deferred_ = asyncDeferred;
+
+  /// <summary>
+  ///   Reset the Disposable to disposes <paramref name="disposable" /> when disposed.
+  ///   The previous action will not be called.
+  /// </summary>
+  /// <param name="disposable">Action to be called at Dispose</param>
+  [PublicAPI]
+  public void Reset(IDisposable? disposable)
+    => deferred_ = disposable;
+
+  /// <summary>
+  ///   Reset the Disposable to disposes <paramref name="asyncDisposable" /> when disposed.
+  ///   The previous action will not be called.
+  /// </summary>
+  /// <param name="asyncDisposable">Action to be called at Dispose</param>
+  [PublicAPI]
+  public void Reset(IAsyncDisposable? asyncDisposable)
+    => deferred_ = asyncDisposable;
 
   ~Deferrer()
     => Dispose();

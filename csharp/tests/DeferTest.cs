@@ -1,4 +1,4 @@
-﻿// This file is part of the ArmoniK project
+// This file is part of the ArmoniK project
 //
 // Copyright (C) ANEO, 2022-2023.All rights reserved.
 //
@@ -24,6 +24,14 @@ namespace ArmoniK.Utils.Tests;
 
 public class DeferTest
 {
+  public enum DeferrerKind
+  {
+    SyncFunc,
+    AsyncFunc,
+    SyncDisposable,
+    AsyncDisposable,
+  }
+
   ////////////////////////////
   // Synchronous Disposable //
   ////////////////////////////
@@ -34,12 +42,16 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public void DeferShouldWork(bool async)
+  public void DeferDefaultShouldWork()
+  {
+    using var defer = new Deferrer();
+  }
+
+  [Test]
+  public void DeferShouldWork([Values] DeferrerKind kind)
   {
     var i = 1;
-    using (DisposableCreate(async,
+    using (DisposableCreate(kind,
                             0,
                             () => i += 1))
     {
@@ -53,13 +65,11 @@ public class DeferTest
 
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public void RedundantDeferShouldWork(bool async)
+  public void RedundantDeferShouldWork([Values] DeferrerKind kind)
   {
     var i = 1;
 
-    var defer = DisposableCreate(async,
+    var defer = DisposableCreate(kind,
                                  0,
                                  () => i += 1);
 
@@ -78,13 +88,48 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task DeferShouldBeRaceConditionFree(bool async)
+  public void DeferResetShouldWork([Values] DeferrerKind? firstKind,
+                                   [Values] DeferrerKind? secondKind)
+  {
+    var first  = false;
+    var second = false;
+
+    using (var disposable = DeferrerCreate(firstKind,
+                                           0,
+                                           () => first = true))
+    {
+      DeferrerReset(disposable,
+                    secondKind,
+                    0,
+                    () => second = true);
+    }
+
+    // Force collection to ensure that previous action is not called
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+
+    Assert.That(first,
+                Is.False);
+    if (secondKind is null)
+    {
+      Assert.That(second,
+                  Is.False);
+    }
+    else
+    {
+      Assert.That(second,
+                  Is.True);
+    }
+  }
+
+  [Test]
+  public async Task DeferShouldBeRaceConditionFree([Values] DeferrerKind kind)
   {
     var i = 1;
 
-    var defer = DisposableCreate(async,
+    var defer = DisposableCreate(kind,
                                  100,
                                  () => Interlocked.Increment(ref i));
 
@@ -99,14 +144,12 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public void RedundantCopyDeferShouldWork(bool async)
+  public void RedundantCopyDeferShouldWork([Values] DeferrerKind kind)
   {
     var i = 1;
 
     {
-      using var defer1 = DisposableCreate(async,
+      using var defer1 = DisposableCreate(kind,
                                           100,
                                           () => i += 1);
       using var defer2 = defer1;
@@ -123,9 +166,7 @@ public class DeferTest
     => new(f());
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public void DeferShouldWorkWhenCollected(bool async)
+  public void DeferShouldWorkWhenCollected([Values] DeferrerKind kind)
   {
     var i = 1;
 
@@ -133,7 +174,7 @@ public class DeferTest
 
     var weakRef = WeakRefDisposable(() =>
                                     {
-                                      reference = DisposableCreate(async,
+                                      reference = DisposableCreate(kind,
                                                                    0,
                                                                    () => i += 1);
                                       return reference;
@@ -160,12 +201,10 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public void WrappedDeferShouldWork(bool async)
+  public void WrappedDeferShouldWork([Values] DeferrerKind kind)
   {
     var i = 1;
-    using (new DisposableWrapper(DisposableCreate(async,
+    using (new DisposableWrapper(DisposableCreate(kind,
                                                   0,
                                                   () => i += 1)))
     {
@@ -187,12 +226,16 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task AsyncDeferShouldWork(bool async)
+  public async Task AsyncDeferDefaultShouldWork()
+  {
+    await using var defer = new Deferrer();
+  }
+
+  [Test]
+  public async Task AsyncDeferShouldWork([Values] DeferrerKind kind)
   {
     var i = 1;
-    await using (AsyncDisposableCreate(async,
+    await using (AsyncDisposableCreate(kind,
                                        0,
                                        () => i += 1))
     {
@@ -206,13 +249,11 @@ public class DeferTest
 
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task RedundantAsyncDeferShouldWork(bool async)
+  public async Task RedundantAsyncDeferShouldWork([Values] DeferrerKind kind)
   {
     var i = 1;
 
-    var defer = AsyncDisposableCreate(async,
+    var defer = AsyncDisposableCreate(kind,
                                       0,
                                       () => i += 1);
 
@@ -233,13 +274,48 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task AsyncDeferShouldBeRaceConditionFree(bool async)
+  public async Task AsyncDeferResetShouldWork([Values] DeferrerKind? firstKind,
+                                              [Values] DeferrerKind? secondKind)
+  {
+    var first  = false;
+    var second = false;
+
+    await using (var disposable = DeferrerCreate(firstKind,
+                                                 0,
+                                                 () => first = true))
+    {
+      DeferrerReset(disposable,
+                    secondKind,
+                    0,
+                    () => second = true);
+    }
+
+    // Force collection to ensure that previous action is not called
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+
+    Assert.That(first,
+                Is.False);
+    if (secondKind is null)
+    {
+      Assert.That(second,
+                  Is.False);
+    }
+    else
+    {
+      Assert.That(second,
+                  Is.True);
+    }
+  }
+
+  [Test]
+  public async Task AsyncDeferShouldBeRaceConditionFree([Values] DeferrerKind kind)
   {
     var i = 1;
 
-    var defer = AsyncDisposableCreate(async,
+    var defer = AsyncDisposableCreate(kind,
                                       100,
                                       () => Interlocked.Increment(ref i));
 
@@ -256,14 +332,12 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task RedundantCopyAsyncDeferShouldWork(bool async)
+  public async Task RedundantCopyAsyncDeferShouldWork([Values] DeferrerKind kind)
   {
     var i = 1;
 
     {
-      await using var defer1 = AsyncDisposableCreate(async,
+      await using var defer1 = AsyncDisposableCreate(kind,
                                                      100,
                                                      () => i += 1);
       await using var defer2 = defer1;
@@ -280,9 +354,7 @@ public class DeferTest
     => new(f());
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public void AsyncDeferShouldWorkWhenCollected(bool async)
+  public void AsyncDeferShouldWorkWhenCollected([Values] DeferrerKind kind)
   {
     var i = 1;
 
@@ -290,7 +362,7 @@ public class DeferTest
 
     var weakRef = WeakRefAsyncDisposable(() =>
                                          {
-                                           reference = AsyncDisposableCreate(async,
+                                           reference = AsyncDisposableCreate(kind,
                                                                              0,
                                                                              () => i += 1);
                                            return reference;
@@ -317,12 +389,10 @@ public class DeferTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task WrappedAsyncDeferShouldWork(bool async)
+  public async Task WrappedAsyncDeferShouldWork([Values] DeferrerKind kind)
   {
     var i = 1;
-    await using (new AsyncDisposableWrapper(AsyncDisposableCreate(async,
+    await using (new AsyncDisposableWrapper(AsyncDisposableCreate(kind,
                                                                   0,
                                                                   () => i += 1)))
     {
@@ -334,53 +404,102 @@ public class DeferTest
                 Is.EqualTo(2));
   }
 
-  private static Deferrer DeferrerCreate(bool   async,
-                                         int    delay,
-                                         Action f)
+  private static Action GetAction(int    delay,
+                                  Action f)
   {
-    if (async)
+    void Action()
     {
-      return new Deferrer(async () =>
-                          {
-                            if (delay > 0)
-                            {
-                              await Task.Delay(delay);
-                            }
-                            else
-                            {
-                              await Task.Yield();
-                            }
+      if (delay > 0)
+      {
+        Thread.Sleep(delay);
+      }
+      else
+      {
+        Thread.Yield();
+      }
 
-                            f();
-                          });
+      f();
     }
 
-    return new Deferrer(() =>
-                        {
-                          if (delay > 0)
-                          {
-                            Thread.Sleep(delay);
-                          }
-                          else
-                          {
-                            Thread.Yield();
-                          }
-
-                          f();
-                        });
+    return Action;
   }
 
-  private static IDisposable DisposableCreate(bool   async,
-                                              int    delay,
-                                              Action f)
-    => DeferrerCreate(async,
+  private static Func<ValueTask> GetAsyncAction(int    delay,
+                                                Action f)
+  {
+    async ValueTask AsyncAction()
+    {
+      if (delay > 0)
+      {
+        await Task.Delay(delay);
+      }
+      else
+      {
+        await Task.Yield();
+      }
+
+      f();
+    }
+
+    return AsyncAction;
+  }
+
+  private static Deferrer DeferrerCreate(DeferrerKind? kind,
+                                         int           delay,
+                                         Action        f)
+    => kind switch
+       {
+         DeferrerKind.SyncFunc => new Deferrer(GetAction(delay,
+                                                         f)),
+         DeferrerKind.AsyncFunc => new Deferrer(GetAsyncAction(delay,
+                                                               f)),
+         DeferrerKind.SyncDisposable => new Deferrer(new DisposableFuncWrapper(GetAction(delay,
+                                                                                         f))),
+         DeferrerKind.AsyncDisposable => new Deferrer(new AsyncDisposableFuncWrapper(GetAsyncAction(delay,
+                                                                                                    f))),
+         _ => new Deferrer(),
+       };
+
+  private static void DeferrerReset(Deferrer      deferrer,
+                                    DeferrerKind? kind,
+                                    int           delay,
+                                    Action        f)
+  {
+    switch (kind)
+    {
+      case null:
+        deferrer.Reset();
+        break;
+      case DeferrerKind.SyncFunc:
+        deferrer.Reset(GetAction(delay,
+                                 f));
+        break;
+      case DeferrerKind.AsyncFunc:
+        deferrer.Reset(GetAsyncAction(delay,
+                                      f));
+        break;
+      case DeferrerKind.SyncDisposable:
+        deferrer.Reset(new DisposableFuncWrapper(GetAction(delay,
+                                                           f)));
+        break;
+      case DeferrerKind.AsyncDisposable:
+        deferrer.Reset(new AsyncDisposableFuncWrapper(GetAsyncAction(delay,
+                                                                     f)));
+        break;
+    }
+  }
+
+  private static IDisposable DisposableCreate(DeferrerKind? kind,
+                                              int           delay,
+                                              Action        f)
+    => DeferrerCreate(kind,
                       delay,
                       f);
 
-  private static IAsyncDisposable AsyncDisposableCreate(bool   async,
-                                                        int    delay,
-                                                        Action f)
-    => DeferrerCreate(async,
+  private static IAsyncDisposable AsyncDisposableCreate(DeferrerKind? kind,
+                                                        int           delay,
+                                                        Action        f)
+    => DeferrerCreate(kind,
                       delay,
                       f);
 
@@ -393,9 +512,21 @@ public class DeferTest
       => Disposable.Dispose();
   }
 
+  private record DisposableFuncWrapper(Action Action) : IDisposable
+  {
+    public void Dispose()
+      => Action();
+  }
+
   private record AsyncDisposableWrapper(IAsyncDisposable AsyncDisposable) : IAsyncDisposable
   {
     public ValueTask DisposeAsync()
       => AsyncDisposable.DisposeAsync();
+  }
+
+  private record AsyncDisposableFuncWrapper(Func<ValueTask> Func) : IAsyncDisposable
+  {
+    public ValueTask DisposeAsync()
+      => Func();
   }
 }
