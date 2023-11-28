@@ -66,16 +66,25 @@ public class CollectionView<Tsrc, Tdst> : ICollection<Tdst>
     => GetEnumerator();
 
   /// <inheritdoc />
+  /// <remarks>
+  ///   Operation is not supported on a view
+  /// </remarks>
   public void Add(Tdst item)
     => throw new NotSupportedException("View Collection is read-only");
 
   /// <inheritdoc />
+  /// <remarks>
+  ///   Operation is not supported on a view
+  /// </remarks>
   public void Clear()
     => throw new NotSupportedException("View Collection is read-only");
 
   /// <inheritdoc />
+  /// <remarks>
+  ///   The underlying collection should be entirely iterated over to check if <paramref name="item" /> is in the view
+  /// </remarks>
   public bool Contains(Tdst item)
-    => throw new NotSupportedException("View Collection is read-only");
+    => (this as IEnumerable<Tdst>).Contains(item);
 
   /// <inheritdoc />
   public void CopyTo(Tdst[] array,
@@ -88,6 +97,9 @@ public class CollectionView<Tsrc, Tdst> : ICollection<Tdst>
   }
 
   /// <inheritdoc />
+  /// <remarks>
+  ///   Operation is not supported on a view
+  /// </remarks>
   public bool Remove(Tdst item)
     => throw new NotSupportedException("View Collection is read-only");
 
@@ -96,6 +108,9 @@ public class CollectionView<Tsrc, Tdst> : ICollection<Tdst>
     => collection_.Count;
 
   /// <inheritdoc />
+  /// <remarks>
+  ///   View is always read only
+  /// </remarks>
   public bool IsReadOnly
     => true;
 }
