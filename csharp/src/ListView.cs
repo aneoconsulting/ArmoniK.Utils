@@ -24,45 +24,45 @@ using JetBrains.Annotations;
 namespace ArmoniK.Utils;
 
 /// <summary>
-///   View over a collection of <typeparamref name="Tsrc" />.
+///   View over a list of <typeparamref name="Tsrc" />.
 ///   All elements are projected into <typeparamref name="Tdst" />.
 /// </summary>
-/// <typeparam name="Tsrc">Type of the underlying collection elements</typeparam>
+/// <typeparam name="Tsrc">Type of the underlying list elements</typeparam>
 /// <typeparam name="Tdst">Type of the projected elements</typeparam>
 /// <remarks>
-///   If the underlying is modified, the view will reflect the changes.
-///   If it is safe to iterate over the underlying collection while modifying it,
-///   it is safe to iterate over the view while modifying the underlying collection.
+///   If the underlying list is modified, the view will reflect the changes.
+///   If it is safe to iterate over the underlying list while modifying it,
+///   it is safe to iterate over the view while modifying the underlying list.
 /// </remarks>
 /// <remarks>
 ///   The projection should be pure (no side effect).
 /// </remarks>
 [PublicAPI]
-public readonly struct CollectionView<Tsrc, Tdst> : ICollection<Tdst>
+public readonly struct ListView<Tsrc, Tdst> : IList<Tdst>
 {
-  private readonly ICollection<Tsrc> collection_;
-  private readonly Func<Tsrc, Tdst>  projection_;
+  private readonly IList<Tsrc>      list_;
+  private readonly Func<Tsrc, Tdst> projection_;
 
   /// <summary>
-  ///   Project <paramref name="collection" /> into a view
+  ///   Project <paramref name="list" /> into a view
   /// </summary>
-  /// <param name="collection">Collection to project</param>
+  /// <param name="list">List to project</param>
   /// <param name="projection">
   ///   Function to project <typeparamref name="Tsrc" /> elements into <typeparamref name="Tdst" />
   ///   elements
   /// </param>
   [PublicAPI]
-  public CollectionView(ICollection<Tsrc> collection,
-                        Func<Tsrc, Tdst>  projection)
+  public ListView(IList<Tsrc>      list,
+                  Func<Tsrc, Tdst> projection)
   {
     projection_ = projection;
-    collection_ = collection;
+    list_       = list;
   }
 
   /// <inheritdoc />
   public IEnumerator<Tdst> GetEnumerator()
-    => collection_.Select(projection_)
-                  .GetEnumerator();
+    => list_.Select(projection_)
+            .GetEnumerator();
 
   /// <inheritdoc />
   IEnumerator IEnumerable.GetEnumerator()
@@ -73,19 +73,19 @@ public readonly struct CollectionView<Tsrc, Tdst> : ICollection<Tdst>
   ///   <see cref="Add" /> is not supported on a view
   /// </remarks>
   public void Add(Tdst item)
-    => throw new NotSupportedException("View Collection is read-only");
+    => throw new NotSupportedException("View List is read-only");
 
   /// <inheritdoc />
   /// <remarks>
   ///   <see cref="Clear" /> is not supported on a view
   /// </remarks>
   public void Clear()
-    => throw new NotSupportedException("View Collection is read-only");
+    => throw new NotSupportedException("View List is read-only");
 
   /// <inheritdoc />
   /// <remarks>
-  ///   The underlying collection should be entirely iterated over to check if <paramref name="item" /> is in the view,
-  ///   even if the underlying collection provides a fast way to check if it contains a given value.
+  ///   The underlying list should be entirely iterated over to check if <paramref name="item" /> is in the view,
+  ///   even if the underlying list provides a fast way to check if it contains a given value.
   /// </remarks>
   public bool Contains(Tdst item)
   {
@@ -118,11 +118,11 @@ public readonly struct CollectionView<Tsrc, Tdst> : ICollection<Tdst>
   ///   <see cref="Remove" /> is not supported on a view
   /// </remarks>
   public bool Remove(Tdst item)
-    => throw new NotSupportedException("View Collection is read-only");
+    => throw new NotSupportedException("View List is read-only");
 
   /// <inheritdoc />
   public int Count
-    => collection_.Count;
+    => list_.Count;
 
   /// <inheritdoc />
   /// <remarks>
@@ -130,4 +130,49 @@ public readonly struct CollectionView<Tsrc, Tdst> : ICollection<Tdst>
   /// </remarks>
   public bool IsReadOnly
     => true;
+
+  /// <inheritdoc />
+  public int IndexOf(Tdst item)
+  {
+    var cmp = Comparer<Tdst>.Default;
+    var i   = 0;
+
+    foreach (var x in this)
+    {
+      if (cmp.Compare(x,
+                      item) == 0)
+      {
+        return i;
+      }
+
+      ++i;
+    }
+
+    return -1;
+  }
+
+  /// <inheritdoc />
+  /// <remarks>
+  ///   <see cref="Insert" /> is not supported on a view
+  /// </remarks>
+  public void Insert(int  index,
+                     Tdst item)
+    => throw new NotSupportedException("View List is read-only");
+
+  /// <inheritdoc />
+  /// <remarks>
+  ///   <see cref="RemoveAt" /> is not supported on a view
+  /// </remarks>
+  public void RemoveAt(int index)
+    => throw new NotSupportedException("View List is read-only");
+
+  /// <inheritdoc />
+  /// <remarks>
+  ///   Set is not supported on a view
+  /// </remarks>
+  public Tdst this[int index]
+  {
+    get => projection_(list_[index]);
+    set => throw new NotSupportedException("View List is read-only");
+  }
 }

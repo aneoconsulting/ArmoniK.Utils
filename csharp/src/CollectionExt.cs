@@ -24,16 +24,46 @@ namespace ArmoniK.Utils;
 public static class CollectionExt
 {
   /// <summary>
-  ///   Creates a view over a collection
+  ///   Project <paramref name="collection" /> into a view.
   /// </summary>
-  /// <param name="collection"></param>
-  /// <param name="projection"></param>
-  /// <typeparam name="Tsrc"></typeparam>
-  /// <typeparam name="Tdst"></typeparam>
-  /// <returns></returns>
+  /// <param name="collection">Collection to project</param>
+  /// <param name="projection">
+  ///   Function to project <typeparamref name="Tsrc" /> elements into <typeparamref name="Tdst" />
+  ///   elements
+  /// </param>
+  /// <typeparam name="Tsrc">Type of the underlying collection elements</typeparam>
+  /// <typeparam name="Tdst">Type of the projected elements</typeparam>
+  /// <returns>
+  ///   Projected view over the <paramref name="collection" />.
+  /// </returns>
+  /// <remarks>
+  ///   <paramref name="projection" /> should be pure (no side effect).
+  /// </remarks>
   [PublicAPI]
   public static CollectionView<Tsrc, Tdst> ViewSelect<Tsrc, Tdst>(this ICollection<Tsrc> collection,
                                                                   Func<Tsrc, Tdst>       projection)
     => new(collection,
+           projection);
+
+  /// <summary>
+  ///   Project <paramref name="list" /> into a view.
+  /// </summary>
+  /// <param name="list">List to project</param>
+  /// <param name="projection">
+  ///   Function to project <typeparamref name="Tsrc" /> elements into <typeparamref name="Tdst" />
+  ///   elements
+  /// </param>
+  /// <typeparam name="Tsrc">Type of the underlying list elements</typeparam>
+  /// <typeparam name="Tdst">Type of the projected elements</typeparam>
+  /// <returns>
+  ///   Projected view over the <paramref name="list" />.
+  /// </returns>
+  /// <remarks>
+  ///   <paramref name="projection" /> should be pure (no side effect).
+  /// </remarks>
+  [PublicAPI]
+  public static ListView<Tsrc, Tdst> ViewSelect<Tsrc, Tdst>(this IList<Tsrc> list,
+                                                            Func<Tsrc, Tdst> projection)
+    => new(list,
            projection);
 }
