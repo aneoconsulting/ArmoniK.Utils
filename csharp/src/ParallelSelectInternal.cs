@@ -16,7 +16,7 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Channels;
@@ -45,58 +45,57 @@ internal static class ParallelSelectInternal
                                                                                          [EnumeratorCancellation] CancellationToken cancellationToken)
   {
     // CancellationTokenSource used to cancel all tasks inflight upon errors
-    var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    var globalCts    = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token);
 
     // Output
     var channel = Channel.CreateUnbounded<Task<TOutput>>();
 
     // Semaphore to limit the parallelism
-    // Semaphore is created with one resource already acquired
     var sem = new SemaphoreSlim(parallelism);
 
+    [SuppressMessage("ReSharper",
+                     "PossibleMultipleEnumeration")]
+    [SuppressMessage("ReSharper",
+                     "AccessToDisposedClosure")]
     async Task Run()
     {
       try
       {
-        var tasks = await enumerable.SelectAwait(async x =>
-                                                 {
-                                                   await sem.WaitAsync(cts.Token)
-                                                            .ConfigureAwait(false);
-                                                   var task = Task.Run(async () =>
-                                                                       {
-                                                                         TOutput res;
-                                                                         try
-                                                                         {
-                                                                           res = await func(x)
-                                                                                   .ConfigureAwait(false);
-                                                                         }
-                                                                         catch
-                                                                         {
-                                                                           cts.Cancel();
-                                                                           throw;
-                                                                         }
+        var runningTasks = new List<Task>();
 
-                                                                         sem.Release();
-                                                                         return res;
-                                                                       },
-                                                                       cts.Token);
-
-                                                   await channel.Writer.WriteAsync(task,
-                                                                                   cts.Token)
-                                                                .ConfigureAwait(false);
-
-                                                   return task;
-                                                 })
-                                    .ToListAsync(cts.Token)
-                                    .ConfigureAwait(false);
-
-        await tasks.WhenAll()
+        await foreach (var x in enumerable.WithCancellation(iterationCts.Token))
+        {
+          await sem.WaitAsync(iterationCts.Token)
                    .ConfigureAwait(false);
-      }
-      catch
-      {
-        cts.Cancel();
-        throw;
+          var task = Task.Run(async () =>
+                              {
+                                TOutput res;
+                                try
+                                {
+                                  res = await func(x)
+                                          .ConfigureAwait(false);
+                                }
+                                catch
+                                {
+                                  iterationCts.Cancel();
+                                  throw;
+                                }
+
+                                sem.Release();
+                                return res;
+                              },
+                              globalCts.Token);
+
+          runningTasks.Add(task);
+
+          await channel.Writer.WriteAsync(task,
+                                          globalCts.Token)
+                       .ConfigureAwait(false);
+        }
+
+        await runningTasks.WhenAll()
+                          .ConfigureAwait(false);
       }
       finally
       {
@@ -105,17 +104,26 @@ internal static class ParallelSelectInternal
     }
 
     var run = Task.Run(Run,
-                       cts.Token);
+                       globalCts.Token);
 
-    await foreach (var res in channel.Reader.ToAsyncEnumerable(CancellationToken.None))
+    try
     {
-      yield return await res.ConfigureAwait(false);
+      await foreach (var res in channel.Reader.ToAsyncEnumerable(globalCts.Token))
+      {
+        yield return await res.ConfigureAwait(false);
+      }
+
+      await run.ConfigureAwait(false);
+    }
+    finally
+    {
+      // Ensure all running tasks are actually aborted
+      globalCts.Cancel();
     }
 
-    await run.ConfigureAwait(false);
-
     sem.Dispose();
-    cts.Dispose();
+    iterationCts.Dispose();
+    globalCts.Dispose();
   }
 
   /// <summary>
@@ -134,68 +142,82 @@ internal static class ParallelSelectInternal
                                                                                            [EnumeratorCancellation] CancellationToken cancellationToken)
   {
     // CancellationTokenSource used to cancel all tasks inflight upon errors
-    var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    var globalCts    = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token);
 
     // Output
     var channel = Channel.CreateUnbounded<TOutput>();
 
+    // Semaphore to limit the parallelism
+    var sem = new SemaphoreSlim(parallelism);
+
+    [SuppressMessage("ReSharper",
+                     "PossibleMultipleEnumeration")]
+    [SuppressMessage("ReSharper",
+                     "AccessToDisposedClosure")]
     async Task Run()
     {
       try
       {
-        // Semaphore to limit the parallelism
-        // Semaphore is created with one resource already acquired
-        var sem = new SemaphoreSlim(parallelism);
+        var runningTasks = new List<Task>();
 
-        var tasks = await enumerable.SelectAwait(async x =>
-                                                 {
-                                                   await sem.WaitAsync(cts.Token)
-                                                            .ConfigureAwait(false);
-                                                   return Task.Run(async () =>
-                                                                   {
-                                                                     TOutput res;
-                                                                     try
-                                                                     {
-                                                                       res = await func(x)
-                                                                               .ConfigureAwait(false);
-                                                                     }
-                                                                     catch (Exception e)
-                                                                     {
-                                                                       cts.Cancel();
-                                                                       throw;
-                                                                     }
-
-                                                                     sem.Release();
-                                                                     await channel.Writer.WriteAsync(res,
-                                                                                                     cts.Token)
-                                                                                  .ConfigureAwait(false);
-                                                                   },
-                                                                   cts.Token);
-                                                 })
-                                    .ToListAsync(cts.Token)
-                                    .ConfigureAwait(false);
-
-        await tasks.WhenAll()
+        await foreach (var x in enumerable.WithCancellation(iterationCts.Token))
+        {
+          await sem.WaitAsync(iterationCts.Token)
                    .ConfigureAwait(false);
+          var task = Task.Run(async () =>
+                              {
+                                TOutput res;
+                                try
+                                {
+                                  res = await func(x)
+                                          .ConfigureAwait(false);
+                                }
+                                catch
+                                {
+                                  iterationCts.Cancel();
+                                  throw;
+                                }
 
-        sem.Dispose();
+                                sem.Release();
+                                await channel.Writer.WriteAsync(res,
+                                                                iterationCts.Token)
+                                             .ConfigureAwait(false);
+                              },
+                              globalCts.Token);
+
+          runningTasks.Add(task);
+        }
+
+        await runningTasks.WhenAll()
+                          .ConfigureAwait(false);
       }
       finally
       {
-        _ = channel.Writer.TryComplete();
+        channel.Writer.Complete();
       }
     }
 
     var run = Task.Run(Run,
-                       cts.Token);
+                       globalCts.Token);
 
-    await foreach (var res in channel.Reader.ToAsyncEnumerable(CancellationToken.None))
+    try
     {
-      yield return res;
+      await foreach (var res in channel.Reader.ToAsyncEnumerable(globalCts.Token))
+      {
+        yield return res;
+      }
+
+      await run.ConfigureAwait(false);
+    }
+    finally
+    {
+      // Ensure all running tasks are actually aborted
+      globalCts.Cancel();
     }
 
-    await run.ConfigureAwait(false);
-
-    cts.Dispose();
+    sem.Dispose();
+    iterationCts.Dispose();
+    globalCts.Dispose();
   }
 }
