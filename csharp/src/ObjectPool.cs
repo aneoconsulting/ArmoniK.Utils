@@ -38,9 +38,14 @@ namespace ArmoniK.Utils;
 ///     Created objects can then be reused once they are released.
 ///   </para>
 ///   <para>
-///     When an object is released, a "return function" is called to check if the object is still valid.
+///     When an object is released, a "validate function" is called to check if the object is still valid.
 ///     If the object is still valid, it is returned to the pool and could be reused later on.
 ///     If the object is not valid, it is disposed (if disposable) and <i>not</i> returned to the pool.
+///   </para>
+///   <para>
+///     Validity of the pooled objects is also checked when an object is acquired again.
+///     Therefore, if the validity of the object expires after it has been released to the pool,
+///     it is still guaranteed to get back valid objects from the pool.
 ///   </para>
 ///   <para>
 ///     When the pool is disposed, all objects in the pool are disposed (if disposable).
@@ -79,8 +84,8 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
 {
   private readonly ConcurrentBag<T>                             bag_;
   private readonly Func<CancellationToken, ValueTask<T>>        createFunc_;
-  private readonly Func<T, CancellationToken, ValueTask<bool>>? returnFunc_;
   private readonly SemaphoreSlim                                sem_;
+  private readonly Func<T, CancellationToken, ValueTask<bool>>? validateFunc_;
 
   /// <summary>
   ///   Create a new ObjectPool that can have at most <paramref name="max" /> objects created at the same time.
@@ -90,11 +95,11 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// </remarks>
   /// <param name="max">Maximum number of objects</param>
   /// <param name="createFunc">Function to call to create new objects</param>
-  /// <param name="returnFunc">Function to call to check if an object is still valid and can be returned to the pool</param>
+  /// <param name="validateFunc">Function to call to check if an object is still valid and can be safely reused</param>
   [PublicAPI]
   public ObjectPool(int                                          max,
                     Func<CancellationToken, ValueTask<T>>        createFunc,
-                    Func<T, CancellationToken, ValueTask<bool>>? returnFunc = null)
+                    Func<T, CancellationToken, ValueTask<bool>>? validateFunc = null)
   {
     // For now, the object pool is constructed directly with 2 functions, but in the future
     // we might want to use a `ObjectPoolPolicy` instead, and make this constructor
@@ -106,23 +111,23 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
             _   => max,
           };
 
-    bag_        = new ConcurrentBag<T>();
-    sem_        = new SemaphoreSlim(max);
-    createFunc_ = createFunc;
-    returnFunc_ = returnFunc;
+    bag_          = new ConcurrentBag<T>();
+    sem_          = new SemaphoreSlim(max);
+    createFunc_   = createFunc;
+    validateFunc_ = validateFunc;
   }
 
   /// <summary>
   ///   Create a new ObjectPool without limit on the number of objects created.
   /// </summary>
   /// <param name="createFunc">Function to call to create new objects</param>
-  /// <param name="returnFunc">Function to call to check if an object is still valid and can be returned to the pool</param>
+  /// <param name="validateFunc">Function to call to check if an object is still valid and can be safely reused</param>
   [PublicAPI]
   public ObjectPool(Func<CancellationToken, ValueTask<T>>        createFunc,
-                    Func<T, CancellationToken, ValueTask<bool>>? returnFunc = null)
+                    Func<T, CancellationToken, ValueTask<bool>>? validateFunc = null)
     : this(-1,
            createFunc,
-           returnFunc)
+           validateFunc)
   {
   }
 
@@ -134,16 +139,16 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// </remarks>
   /// <param name="max">Maximum number of objects</param>
   /// <param name="createFunc">Function to call to create new objects</param>
-  /// <param name="returnFunc">Function to call to check if an object is still valid and can be returned to the pool</param>
+  /// <param name="validateFunc">Function to call to check if an object is still valid and can be safely reused</param>
   [PublicAPI]
   public ObjectPool(int            max,
                     Func<T>        createFunc,
-                    Func<T, bool>? returnFunc = null)
+                    Func<T, bool>? validateFunc = null)
     : this(max,
            _ => new ValueTask<T>(createFunc()),
-           returnFunc is not null
+           validateFunc is not null
              ? (x,
-                _) => new ValueTask<bool>(returnFunc(x))
+                _) => new ValueTask<bool>(validateFunc(x))
              : null)
   {
   }
@@ -152,13 +157,13 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   ///   Create a new ObjectPool without limit on the number of objects created.
   /// </summary>
   /// <param name="createFunc">Function to call to create new objects</param>
-  /// <param name="returnFunc">Function to call to check if an object is still valid and can be returned to the pool</param>
+  /// <param name="validateFunc">Function to call to check if an object is still valid and can be safely reused</param>
   [PublicAPI]
   public ObjectPool(Func<T>        createFunc,
-                    Func<T, bool>? returnFunc = null)
+                    Func<T, bool>? validateFunc = null)
     : this(-1,
            createFunc,
-           returnFunc)
+           validateFunc)
   {
   }
 
@@ -235,7 +240,17 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     {
       if (bag_.TryTake(out var res))
       {
-        return res;
+        var isValid = validateFunc_ is null || await validateFunc_(res,
+                                                                   cancellationToken)
+                        .ConfigureAwait(false);
+
+        if (isValid)
+        {
+          return res;
+        }
+
+        await DisposeOneAsync(res)
+          .ConfigureAwait(false);
       }
 
       return await createFunc_(cancellationToken)
@@ -262,8 +277,8 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   {
     try
     {
-      var isValid = returnFunc_ is null || await returnFunc_(obj,
-                                                             cancellationToken)
+      var isValid = validateFunc_ is null || await validateFunc_(obj,
+                                                                 cancellationToken)
                       .ConfigureAwait(false);
 
       if (isValid)

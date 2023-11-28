@@ -232,6 +232,85 @@ public class ObjectPoolTest
   }
 
   [Test]
+  public async Task DelayedReturnDisposeShouldSucceed([Values] bool asyncDisposable,
+                                                      [Values] bool asyncDispose,
+                                                      [Values] bool asyncFactory)
+  {
+    var nbDisposed = 0;
+
+    object Factory()
+      => asyncDisposable
+           ? new AsyncDisposeAction(() => nbDisposed += 1)
+           : new SyncDisposeAction(() => nbDisposed += 1);
+
+    var poolObjectsMustReturn = true;
+
+    var pool = asyncFactory
+                 ? new ObjectPool<object>(_ => new ValueTask<object>(Factory()),
+                                          (_,
+                                           _) => new ValueTask<bool>(poolObjectsMustReturn))
+                 : new ObjectPool<object>(Factory,
+                                          _ => poolObjectsMustReturn);
+
+    {
+      var obj = await pool.GetAsync()
+                          .ConfigureAwait(false);
+
+      Assert.That(nbDisposed,
+                  Is.EqualTo(0));
+
+      if (asyncDispose)
+      {
+        await obj.DisposeAsync()
+                 .ConfigureAwait(false);
+      }
+      else
+      {
+        obj.Dispose();
+      }
+    }
+
+    Assert.That(nbDisposed,
+                Is.EqualTo(0));
+
+    poolObjectsMustReturn = false;
+
+    {
+      var obj = await pool.GetAsync()
+                          .ConfigureAwait(false);
+
+      Assert.That(nbDisposed,
+                  Is.EqualTo(1));
+
+      if (asyncDispose)
+      {
+        await obj.DisposeAsync()
+                 .ConfigureAwait(false);
+      }
+      else
+      {
+        obj.Dispose();
+      }
+    }
+
+    Assert.That(nbDisposed,
+                Is.EqualTo(2));
+
+    if (asyncDispose)
+    {
+      await pool.DisposeAsync()
+                .ConfigureAwait(false);
+    }
+    else
+    {
+      pool.Dispose();
+    }
+
+    Assert.That(nbDisposed,
+                Is.EqualTo(2));
+  }
+
+  [Test]
   public async Task MaxLimitShouldSucceed([Values(null,
                                                   -1,
                                                   1,
