@@ -74,6 +74,8 @@ jobs:
             framework: "net6.0"
           - version: "7.0"
             framework: "net7.0"
+          - version: "8.0"
+            framework: "net8.0"
         platform:
           - os: ubuntu-latest
             runtime: linux-x64
