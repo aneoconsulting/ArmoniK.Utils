@@ -45,14 +45,17 @@ internal static class ParallelSelectInternal
                                                                                          [EnumeratorCancellation] CancellationToken cancellationToken)
   {
     // CancellationTokenSource used to cancel all tasks inflight upon errors
-    var globalCts    = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token);
+    using var globalCts    = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    using var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token);
+
+    // Ensure all running tasks are actually aborted at the end
+    await using var globalCtsCancel = new Deferrer(globalCts.Cancel);
 
     // Output
     var channel = Channel.CreateUnbounded<Task<TOutput>>();
 
     // Semaphore to limit the parallelism
-    var sem = new SemaphoreSlim(parallelism);
+    using var sem = new SemaphoreSlim(parallelism);
 
     [SuppressMessage("ReSharper",
                      "PossibleMultipleEnumeration")]
@@ -106,24 +109,12 @@ internal static class ParallelSelectInternal
     var run = Task.Run(Run,
                        globalCts.Token);
 
-    try
+    await foreach (var res in channel.Reader.ToAsyncEnumerable(globalCts.Token))
     {
-      await foreach (var res in channel.Reader.ToAsyncEnumerable(globalCts.Token))
-      {
-        yield return await res.ConfigureAwait(false);
-      }
-
-      await run.ConfigureAwait(false);
-    }
-    finally
-    {
-      // Ensure all running tasks are actually aborted
-      globalCts.Cancel();
+      yield return await res.ConfigureAwait(false);
     }
 
-    sem.Dispose();
-    iterationCts.Dispose();
-    globalCts.Dispose();
+    await run.ConfigureAwait(false);
   }
 
   /// <summary>
@@ -142,14 +133,17 @@ internal static class ParallelSelectInternal
                                                                                            [EnumeratorCancellation] CancellationToken cancellationToken)
   {
     // CancellationTokenSource used to cancel all tasks inflight upon errors
-    var globalCts    = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token);
+    using var globalCts    = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    using var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token);
+
+    // Ensure all running tasks are actually aborted at the end
+    await using var globalCtsCancel = new Deferrer(globalCts.Cancel);
 
     // Output
     var channel = Channel.CreateUnbounded<TOutput>();
 
     // Semaphore to limit the parallelism
-    var sem = new SemaphoreSlim(parallelism);
+    using var sem = new SemaphoreSlim(parallelism);
 
     [SuppressMessage("ReSharper",
                      "PossibleMultipleEnumeration")]
@@ -201,23 +195,11 @@ internal static class ParallelSelectInternal
     var run = Task.Run(Run,
                        globalCts.Token);
 
-    try
+    await foreach (var res in channel.Reader.ToAsyncEnumerable(globalCts.Token))
     {
-      await foreach (var res in channel.Reader.ToAsyncEnumerable(globalCts.Token))
-      {
-        yield return res;
-      }
-
-      await run.ConfigureAwait(false);
-    }
-    finally
-    {
-      // Ensure all running tasks are actually aborted
-      globalCts.Cancel();
+      yield return res;
     }
 
-    sem.Dispose();
-    iterationCts.Dispose();
-    globalCts.Dispose();
+    await run.ConfigureAwait(false);
   }
 }
