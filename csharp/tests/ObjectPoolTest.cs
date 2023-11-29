@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -229,6 +230,92 @@ public class ObjectPoolTest
 
     Assert.That(nbDisposed,
                 Is.EqualTo(1));
+  }
+
+  [Test]
+  [SuppressMessage("ReSharper",
+                   "AccessToModifiedClosure")]
+  public async Task DelayedReturnDisposeShouldSucceed([Values] bool asyncDisposable,
+                                                      [Values] bool asyncDispose,
+                                                      [Values] bool asyncFactory)
+  {
+    var nbDisposed = 0;
+
+    object Factory()
+      => asyncDisposable
+           ? new AsyncDisposeAction(() => nbDisposed += 1)
+           : new SyncDisposeAction(() => nbDisposed += 1);
+
+    var poolObjectsAreValid = true;
+
+    var pool = asyncFactory
+                 ? new ObjectPool<object>(_ => new ValueTask<object>(Factory()),
+                                          (_,
+                                           _) => new ValueTask<bool>(poolObjectsAreValid))
+                 : new ObjectPool<object>(Factory,
+                                          _ => poolObjectsAreValid);
+
+    {
+      var obj1 = await pool.GetAsync()
+                           .ConfigureAwait(false);
+      var obj2 = await pool.GetAsync()
+                           .ConfigureAwait(false);
+
+      Assert.That(nbDisposed,
+                  Is.EqualTo(0));
+
+      if (asyncDispose)
+      {
+        await obj1.DisposeAsync()
+                  .ConfigureAwait(false);
+        await obj2.DisposeAsync()
+                  .ConfigureAwait(false);
+      }
+      else
+      {
+        obj1.Dispose();
+        obj2.Dispose();
+      }
+    }
+
+    Assert.That(nbDisposed,
+                Is.EqualTo(0));
+
+    poolObjectsAreValid = false;
+
+    {
+      var obj = await pool.GetAsync()
+                          .ConfigureAwait(false);
+
+      Assert.That(nbDisposed,
+                  Is.EqualTo(2));
+
+      if (asyncDispose)
+      {
+        await obj.DisposeAsync()
+                 .ConfigureAwait(false);
+      }
+      else
+      {
+        obj.Dispose();
+      }
+    }
+
+    Assert.That(nbDisposed,
+                Is.EqualTo(3));
+
+    if (asyncDispose)
+    {
+      await pool.DisposeAsync()
+                .ConfigureAwait(false);
+    }
+    else
+    {
+      pool.Dispose();
+    }
+
+    Assert.That(nbDisposed,
+                Is.EqualTo(3));
   }
 
   [Test]
