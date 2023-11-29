@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -232,6 +233,8 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [SuppressMessage("ReSharper",
+                   "AccessToModifiedClosure")]
   public async Task DelayedReturnDisposeShouldSucceed([Values] bool asyncDisposable,
                                                       [Values] bool asyncDispose,
                                                       [Values] bool asyncFactory)
@@ -243,44 +246,49 @@ public class ObjectPoolTest
            ? new AsyncDisposeAction(() => nbDisposed += 1)
            : new SyncDisposeAction(() => nbDisposed += 1);
 
-    var poolObjectsMustReturn = true;
+    var poolObjectsAreValid = true;
 
     var pool = asyncFactory
                  ? new ObjectPool<object>(_ => new ValueTask<object>(Factory()),
                                           (_,
-                                           _) => new ValueTask<bool>(poolObjectsMustReturn))
+                                           _) => new ValueTask<bool>(poolObjectsAreValid))
                  : new ObjectPool<object>(Factory,
-                                          _ => poolObjectsMustReturn);
+                                          _ => poolObjectsAreValid);
 
     {
-      var obj = await pool.GetAsync()
-                          .ConfigureAwait(false);
+      var obj1 = await pool.GetAsync()
+                           .ConfigureAwait(false);
+      var obj2 = await pool.GetAsync()
+                           .ConfigureAwait(false);
 
       Assert.That(nbDisposed,
                   Is.EqualTo(0));
 
       if (asyncDispose)
       {
-        await obj.DisposeAsync()
-                 .ConfigureAwait(false);
+        await obj1.DisposeAsync()
+                  .ConfigureAwait(false);
+        await obj2.DisposeAsync()
+                  .ConfigureAwait(false);
       }
       else
       {
-        obj.Dispose();
+        obj1.Dispose();
+        obj2.Dispose();
       }
     }
 
     Assert.That(nbDisposed,
                 Is.EqualTo(0));
 
-    poolObjectsMustReturn = false;
+    poolObjectsAreValid = false;
 
     {
       var obj = await pool.GetAsync()
                           .ConfigureAwait(false);
 
       Assert.That(nbDisposed,
-                  Is.EqualTo(1));
+                  Is.EqualTo(2));
 
       if (asyncDispose)
       {
@@ -294,7 +302,7 @@ public class ObjectPoolTest
     }
 
     Assert.That(nbDisposed,
-                Is.EqualTo(2));
+                Is.EqualTo(3));
 
     if (asyncDispose)
     {
@@ -307,7 +315,7 @@ public class ObjectPoolTest
     }
 
     Assert.That(nbDisposed,
-                Is.EqualTo(2));
+                Is.EqualTo(3));
   }
 
   [Test]

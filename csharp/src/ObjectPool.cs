@@ -238,7 +238,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
 
     try
     {
-      if (bag_.TryTake(out var res))
+      while (bag_.TryTake(out var res))
       {
         var isValid = validateFunc_ is null || await validateFunc_(res,
                                                                    cancellationToken)
