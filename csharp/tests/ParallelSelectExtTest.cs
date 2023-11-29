@@ -15,7 +15,6 @@
 // limitations under the License.
 
 using System;
-using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -29,164 +28,92 @@ namespace ArmoniK.Utils.Tests;
 
 public class ParallelSelectExtTest
 {
-  private static readonly bool[] Booleans =
+  private static readonly (int n, int? parallelism)[] SelectCases =
   {
-    false,
-    true,
+    (0, null),
+    (0, -1),
+    (0, 0),
+    (0, 1),
+    (0, 2),
+    (1, null),
+    (1, -1),
+    (1, 0),
+    (1, 1),
+    (1, 2),
+    (4, null),
+    (4, -1),
+    (4, 0),
+    (4, 1),
+    (4, 2),
+    (10, 1),
+    (20, 2),
+    (100, null),
+    (100, 0),
+    (1000, -1),
   };
 
-  private static IEnumerable ParallelSelectCases()
+  public static readonly (int n, int? parallelism)[] SelectLimitCases =
   {
-    var parallelisms = new int?[]
-                       {
-                         null,
-                         -1,
-                         0,
-                         1,
-                         2,
-                       };
-    var sizes = new[]
-                {
-                  0,
-                  1,
-                  4,
-                };
-
-    TestCaseData Case(bool blocking,
-                      bool useAsync,
-                      int? parallelism,
-                      int  size)
-      => new TestCaseData(blocking,
-                          useAsync,
-                          parallelism,
-                          size).SetArgDisplayNames($"int[{size}], {parallelism}{(useAsync ? ", async" : "")}{(blocking ? ", blocking" : "")}");
-
-    foreach (var blocking in Booleans)
-    {
-      foreach (var useAsync in Booleans)
-      {
-        foreach (var parallelism in parallelisms)
-        {
-          foreach (var size in sizes)
-          {
-            yield return Case(blocking,
-                              useAsync,
-                              parallelism,
-                              size);
-          }
-        }
-
-        yield return Case(blocking,
-                          useAsync,
-                          null,
-                          100);
-        yield return Case(blocking,
-                          useAsync,
-                          -1,
-                          blocking
-                            ? 100
-                            : 1000);
-        yield return Case(blocking,
-                          useAsync,
-                          0,
-                          100);
-        yield return Case(blocking,
-                          useAsync,
-                          1,
-                          10);
-        yield return Case(blocking,
-                          useAsync,
-                          1,
-                          20);
-      }
-    }
-  }
+    (10, 1),
+    (20, 2),
+    (100, null),
+    (100, 0),
+    (100, 10),
+    (1000, 100),
+    (10000, -1),
+  };
 
   [Test]
-  [TestCaseSource(nameof(ParallelSelectCases))]
-  public async Task ParallelSelectShouldSucceed(bool blocking,
-                                                bool useAsync,
-                                                int? parallelism,
-                                                int  n)
+  public async Task ParallelSelectShouldSucceed([ValueSource(nameof(SelectCases))] (int n, int? parallelism) param,
+                                                [Values]                           bool?                     unordered,
+                                                [Values]                           bool                      blocking,
+                                                [Values]                           bool                      useAsync)
   {
+    if (blocking && InvalidBlocking(param))
+    {
+      return;
+    }
+
     var enumerable = GenerateAndSelect(useAsync,
-                                       parallelism,
+                                       unordered,
+                                       param.parallelism,
                                        null,
-                                       n,
+                                       param.n,
                                        AsyncIdentity(0,
                                                      10,
                                                      blocking));
     var x = await enumerable.ToListAsync()
                             .ConfigureAwait(false);
-    var y = GenerateInts(n)
+    var y = GenerateInts(param.n)
       .ToList();
+
+    if (unordered is true)
+    {
+      x.Sort();
+      y.Sort();
+    }
+
     Assert.That(x,
                 Is.EqualTo(y));
   }
 
-  private static IEnumerable ParallelSelectLimitCases()
-  {
-    TestCaseData Case(bool blocking,
-                      bool useAsync,
-                      int? parallelism,
-                      int  size)
-      => new TestCaseData(blocking,
-                          useAsync,
-                          parallelism,
-                          size).SetArgDisplayNames($"int[{size}], {parallelism}{(useAsync ? ", async" : "")}{(blocking ? ", blocking" : "")}");
-
-    foreach (var blocking in Booleans)
-    {
-      foreach (var useAsync in Booleans)
-      {
-        yield return Case(blocking,
-                          useAsync,
-                          null,
-                          100);
-        yield return Case(blocking,
-                          useAsync,
-                          0,
-                          100);
-        yield return Case(blocking,
-                          useAsync,
-                          1,
-                          10);
-        yield return Case(blocking,
-                          useAsync,
-                          2,
-                          20);
-        if (!blocking)
-        {
-          yield return Case(blocking,
-                            useAsync,
-                            10,
-                            100);
-          yield return Case(blocking,
-                            useAsync,
-                            100,
-                            1000);
-          yield return Case(blocking,
-                            useAsync,
-                            -1,
-                            10000);
-        }
-      }
-    }
-  }
-
   [Test]
-  [TestCaseSource(nameof(ParallelSelectLimitCases))]
   [Retry(4)]
-  public async Task ParallelSelectLimitShouldSucceed(bool blocking,
-                                                     bool useAsync,
-                                                     int? parallelism,
-                                                     int  n)
+  public async Task ParallelSelectLimitShouldSucceed([ValueSource(nameof(SelectLimitCases))] (int n, int? parallelism) param,
+                                                     [Values]                                bool                      unordered,
+                                                     [Values]                                bool                      blocking,
+                                                     [Values]                                bool                      useAsync)
   {
+    if (blocking && InvalidBlocking(param))
+    {
+      return;
+    }
+
     var counter    = 0;
     var maxCounter = 0;
 
     // We use a larger wait for infinite parallelism to ensure we can actually spawn thousands of tasks in parallel
-    var (delayMin, delayMax) = parallelism < 0
+    var (delayMin, delayMax) = param.parallelism < 0
                                  ? (500, 1000)
                                  : (50, 100);
     var identity = AsyncIdentity(delayMin,
@@ -206,22 +133,30 @@ public class ParallelSelectExtTest
     }
 
     var enumerable = GenerateAndSelect(useAsync,
-                                       parallelism,
+                                       unordered,
+                                       param.parallelism,
                                        null,
-                                       n,
+                                       param.n,
                                        F);
     var x = await enumerable.ToListAsync()
                             .ConfigureAwait(false);
-    var y = GenerateInts(n)
+    var y = GenerateInts(param.n)
       .ToList();
+
+    if (unordered)
+    {
+      x.Sort();
+      y.Sort();
+    }
+
     Assert.That(x,
                 Is.EqualTo(y));
 
-    switch (parallelism)
+    switch (param.parallelism)
     {
       case > 0:
         Assert.That(maxCounter,
-                    Is.EqualTo(parallelism));
+                    Is.EqualTo(param.parallelism));
         break;
       case null:
       case 0:
@@ -230,62 +165,63 @@ public class ParallelSelectExtTest
         break;
       case < 0:
         Assert.That(maxCounter,
-                    Is.EqualTo(n));
+                    Is.EqualTo(param.n));
         break;
     }
   }
 
-
-  private static IEnumerable UnorderedCompletionCases()
-    =>
-      from useAsync in Booleans
-      select new TestCaseData(useAsync).SetArgDisplayNames($"{(useAsync ? "async " : "")}");
-
   [Test]
-  [TestCaseSource(nameof(UnorderedCompletionCases))]
-  public async Task UnorderedCompletionShouldSucceed(bool useAsync)
+  public async Task UnorderedCompletionShouldSucceed([Values] bool  useAsync,
+                                                     [Values] bool? unordered)
   {
     var firstDone = false;
 
-    async Task<bool> F(int i)
+    async Task<int?> F(int i)
     {
       if (i != 0)
       {
-        return !firstDone;
+        return firstDone
+                 ? null
+                 : i;
       }
 
       await Task.Delay(100)
                 .ConfigureAwait(false);
       firstDone = true;
-      return true;
+      return 0;
     }
 
     var enumerable = GenerateAndSelect(useAsync,
+                                       unordered,
                                        2,
                                        null,
                                        1000,
                                        F);
     var x = await enumerable.ToListAsync()
                             .ConfigureAwait(false);
+    var y = GenerateInts(1000)
+      .ToList();
+
     Assert.That(x,
-                Is.All.True);
+                Is.All.Not.Null);
+    if (unordered is true)
+    {
+      Assert.That(x,
+                  Has.ItemAt(999)
+                     .EqualTo(0));
+      x.Sort();
+      y.Sort();
+    }
+
+    Assert.That(x,
+                Is.EqualTo(y));
   }
 
-  private static IEnumerable CancellationCases()
-    =>
-      from useAsync in Booleans
-      from cancellationAware in Booleans
-      from cancelLast in Booleans
-      select new TestCaseData(useAsync,
-                              cancellationAware,
-                              cancelLast)
-        .SetArgDisplayNames($"{(cancellationAware ? "aware" : "oblivious")}{(cancelLast ? ", last" : "")}{(useAsync ? ", async" : "")}");
-
   [Test]
-  [TestCaseSource(nameof(CancellationCases))]
-  public async Task CancellationShouldSucceed(bool useAsync,
-                                              bool cancellationAware,
-                                              bool cancelLast)
+  public async Task CancellationShouldSucceed([Values] bool useAsync,
+                                              [Values] bool unordered,
+                                              [Values] bool cancellationAware,
+                                              [Values] bool cancelLast)
   {
     const int cancelAt = 100;
 
@@ -322,18 +258,21 @@ public class ParallelSelectExtTest
     var enumerable = useAsync
                        ? GenerateInts(n)
                          .Select(CancelAt)
-                         .ParallelSelect(new ParallelTaskOptions(-1,
+                         .ParallelSelect(new ParallelTaskOptions(unordered,
+                                                                 -1,
                                                                  cts.Token),
                                          F)
                        : GenerateIntsAsync(n,
-                                           1)
+                                           1,
+                                           CancellationToken.None)
                          .Select(CancelAt)
                          .SelectAwait(async x =>
                                       {
                                         await Task.Yield();
                                         return x;
                                       })
-                         .ParallelSelect(new ParallelTaskOptions(-1,
+                         .ParallelSelect(new ParallelTaskOptions(unordered,
+                                                                 -1,
                                                                  cts.Token),
                                          F);
 
@@ -354,10 +293,9 @@ public class ParallelSelectExtTest
   }
 
   [Test]
-  [TestCaseSource(nameof(CancellationCases))]
-  public async Task ThrowingShouldSucceed(bool useAsync,
-                                          bool cancellationAware,
-                                          bool throwLast)
+  public async Task ThrowingShouldSucceed([Values] bool useAsync,
+                                          [Values] bool cancellationAware,
+                                          [Values] bool throwLast)
   {
     const int throwAt = 100;
 
@@ -374,6 +312,7 @@ public class ParallelSelectExtTest
     }
 
     var enumerable = GenerateAndSelect(useAsync,
+                                       false,
                                        -1,
                                        null,
                                        throwLast
@@ -396,21 +335,127 @@ public class ParallelSelectExtTest
                 Throws.TypeOf<ApplicationException>());
   }
 
+  [Test]
+  public async Task ThrowingUnorderedShouldSucceed([Values] bool useAsync,
+                                                   [Values] bool cancellationAware)
+  {
+    var processorCount = Environment.ProcessorCount;
+    var (n, parallelism) = useAsync
+                             ? (1000, -1)
+                             : (processorCount, processorCount);
+
+    var cts = new CancellationTokenSource();
+    var cancellationToken = cancellationAware
+                              ? cts.Token
+                              : CancellationToken.None;
+
+    var nbFinished = 0;
+
+    async Task<int> F(int x)
+    {
+      if (x == n - 1)
+      {
+        throw new ApplicationException();
+      }
+
+      await Task.Delay(100,
+                       cancellationToken)
+                .ConfigureAwait(false);
+      Interlocked.Increment(ref x);
+      return x;
+    }
+
+    var enumerable = GenerateAndSelect(useAsync,
+                                       true,
+                                       parallelism,
+                                       null,
+                                       n,
+                                       F);
+
+    await using var enumerator = enumerable.GetAsyncEnumerator(CancellationToken.None);
+
+    Assert.That(enumerator.MoveNextAsync,
+                Throws.TypeOf<ApplicationException>());
+
+    await Task.Delay(200,
+                     CancellationToken.None);
+    Assert.That(nbFinished,
+                Is.Zero);
+  }
+
 
   [Test]
-  [TestCaseSource(nameof(ParallelSelectLimitCases))]
-  [Retry(4)]
-  public async Task ParallelForeachLimitShouldSucceed(bool blocking,
-                                                      bool useAsync,
-                                                      int? parallelism,
-                                                      int  n)
+  public async Task ParallelForeachShouldSucceed([ValueSource(nameof(SelectCases))] (int n, int? parallelism) param,
+                                                 [Values]                           bool?                     unordered,
+                                                 [Values]                           bool                      blocking,
+                                                 [Values]                           bool                      useAsync)
   {
+    if (blocking && InvalidBlocking(param))
+    {
+      return;
+    }
+
+    var bag = new ConcurrentBag<int>();
+    var identity = AsyncIdentity(0,
+                                 10,
+                                 blocking);
+
+    async Task F(int x)
+    {
+      _ = await identity(x);
+      bag.Add(x);
+    }
+
+    var options = CreateOptions(unordered,
+                                param.parallelism,
+                                null);
+
+    // ReSharper disable function ConvertTypeCheckPatternToNullCheck
+    var task = (useAsync, options) switch
+               {
+                 (false, null) => GenerateInts(param.n)
+                   .ParallelForEach(F),
+                 (false, ParallelTaskOptions o) => GenerateInts(param.n)
+                   .ParallelForEach(o,
+                                    F),
+                 (true, null) => GenerateIntsAsync(param.n)
+                   .ParallelForEach(F),
+                 (true, ParallelTaskOptions o) => GenerateIntsAsync(param.n)
+                   .ParallelForEach(o,
+                                    F),
+               };
+
+    await task.ConfigureAwait(false);
+
+    var x = bag.ToList();
+    var y = GenerateInts(param.n)
+      .ToList();
+
+    x.Sort();
+    y.Sort();
+
+    Assert.That(x,
+                Is.EqualTo(y));
+  }
+
+  [Test]
+  [Retry(4)]
+  public async Task ParallelForeachLimitShouldSucceed([ValueSource(nameof(SelectLimitCases))] (int n, int? parallelism) param,
+                                                      [Values]                                bool                      unordered,
+                                                      [Values]                                bool                      blocking,
+                                                      [Values]                                bool                      useAsync)
+  {
+    if (blocking && InvalidBlocking(param))
+    {
+      return;
+    }
+
     var bag        = new ConcurrentBag<int>();
     var counter    = 0;
     var maxCounter = 0;
 
     // We use a larger wait for infinite parallelism to ensure we can actually spawn thousands of tasks in parallel
-    var (delayMin, delayMax) = parallelism < 0
+    var (delayMin, delayMax) = param.parallelism < 0
                                  ? (500, 1000)
                                  : (50, 100);
     var identity = AsyncIdentity(delayMin,
@@ -429,25 +474,29 @@ public class ParallelSelectExtTest
       Interlocked.Decrement(ref counter);
     }
 
+    var options = CreateOptions(unordered,
+                                param.parallelism,
+                                null);
+
     // ReSharper disable function ConvertTypeCheckPatternToNullCheck
-    var task = (useAsync, parallelism) switch
+    var task = (useAsync, options) switch
                {
-                 (false, null) => GenerateInts(n)
+                 (false, null) => GenerateInts(param.n)
                    .ParallelForEach(F),
-                 (false, int p) => GenerateInts(n)
-                   .ParallelForEach(new ParallelTaskOptions(p),
+                 (false, ParallelTaskOptions o) => GenerateInts(param.n)
+                   .ParallelForEach(o,
                                     F),
-                 (true, null) => GenerateIntsAsync(n)
+                 (true, null) => GenerateIntsAsync(param.n)
                    .ParallelForEach(F),
-                 (true, int p) => GenerateIntsAsync(n)
-                   .ParallelForEach(new ParallelTaskOptions(p),
+                 (true, ParallelTaskOptions o) => GenerateIntsAsync(param.n)
+                   .ParallelForEach(o,
                                     F),
                };
 
     await task.ConfigureAwait(false);
 
     var x = bag.ToList();
-    var y = GenerateInts(n)
+    var y = GenerateInts(param.n)
       .ToList();
 
     x.Sort();
@@ -456,11 +505,11 @@ public class ParallelSelectExtTest
     Assert.That(x,
                 Is.EqualTo(y));
 
-    switch (parallelism)
+    switch (param.parallelism)
     {
       case > 0:
         Assert.That(maxCounter,
-                    Is.EqualTo(parallelism));
+                    Is.EqualTo(param.parallelism));
         break;
       case null:
       case 0:
@@ -469,17 +518,17 @@ public class ParallelSelectExtTest
         break;
       case < 0:
         Assert.That(maxCounter,
-                    Is.EqualTo(n));
+                    Is.EqualTo(param.n));
         break;
     }
   }
 
 
   [Test]
-  [TestCaseSource(nameof(CancellationCases))]
-  public async Task ForeachCancellationShouldSucceed(bool useAsync,
-                                                     bool cancellationAware,
-                                                     bool cancelLast)
+  public async Task ForeachCancellationShouldSucceed([Values] bool useAsync,
+                                                     [Values] bool unordered,
+                                                     [Values] bool cancellationAware,
+                                                     [Values] bool cancelLast)
   {
     const int cancelAt = 100;
 
@@ -515,25 +564,26 @@ public class ParallelSelectExtTest
     var task = useAsync
                  ? GenerateInts(n)
                    .Select(CancelAt)
-                   .ParallelForEach(new ParallelTaskOptions(-1,
+                   .ParallelForEach(new ParallelTaskOptions(unordered,
+                                                            -1,
                                                             cts.Token),
                                     F)
                  : GenerateIntsAsync(n,
-                                     1)
+                                     1,
+                                     CancellationToken.None)
                    .Select(CancelAt)
                    .SelectAwait(async x =>
                                 {
                                   await Task.Yield();
                                   return x;
                                 })
-                   .ParallelForEach(new ParallelTaskOptions(-1,
+                   .ParallelForEach(new ParallelTaskOptions(unordered,
+                                                            -1,
                                                             cts.Token),
                                     F);
 
-    Assert.ThrowsAsync<TaskCanceledException>(async () =>
-                                              {
-                                                await task.ConfigureAwait(false);
-                                              });
+    Assert.That(() => task,
+                Throws.InstanceOf<OperationCanceledException>());
 
     await Task.Delay(200,
                      CancellationToken.None)
@@ -543,21 +593,37 @@ public class ParallelSelectExtTest
                 Is.LessThan(cancelAt));
   }
 
+  private static ParallelTaskOptions? CreateOptions(bool?              unordered,
+                                                    int?               parallelism,
+                                                    CancellationToken? cancellationToken)
+    => (unordered, parallelism, cancellationToken) switch
+       {
+         (null, null, null)   => null,
+         (bool u, null, null) => new ParallelTaskOptions(u),
+         (null, int p, null)  => new ParallelTaskOptions(p),
+         (bool u, int p, null) => new ParallelTaskOptions(u,
+                                                          p),
+         (null, null, CancellationToken c) => new ParallelTaskOptions(c),
+         (bool u, null, CancellationToken c) => new ParallelTaskOptions(u,
+                                                                        c),
+         (null, int p, CancellationToken c) => new ParallelTaskOptions(p,
+                                                                       c),
+         (bool u, int p, CancellationToken c) => new ParallelTaskOptions(u,
+                                                                         p,
+                                                                         c),
+       };
+
   private static IAsyncEnumerable<T> GenerateAndSelect<T>(bool               useAsync,
+                                                          bool?              unordered,
                                                           int?               parallelism,
                                                           CancellationToken? cancellationToken,
                                                           int                n,
                                                           Func<int, Task<T>> f)
   {
     // ReSharper disable function ConvertTypeCheckPatternToNullCheck
-    ParallelTaskOptions? options = (parallelism, cancellationToken) switch
-                                   {
-                                     (null, null)                => null,
-                                     (int p, null)               => new ParallelTaskOptions(p),
-                                     (null, CancellationToken c) => new ParallelTaskOptions(c),
-                                     (int p, CancellationToken c) => new ParallelTaskOptions(p,
-                                                                                             c),
-                                   };
+    var options = CreateOptions(unordered,
+                                parallelism,
+                                cancellationToken);
 
     return (useAsync, options) switch
            {
@@ -644,6 +710,28 @@ public class ParallelSelectExtTest
 
          return x;
        };
+
+  private static bool InvalidBlocking((int n, int? parallelism) param)
+  {
+    var processorCount = Environment.ProcessorCount;
+    var parallelism = param.parallelism switch
+                      {
+                        null => processorCount,
+                        0    => processorCount,
+                        < 0  => param.n,
+                        {
+                        } p => Math.Min(p,
+                                        param.n),
+                      };
+
+    if (parallelism <= Environment.ProcessorCount)
+    {
+      return false;
+    }
+
+    Assert.Ignore("Parallelism is higher than thread count for blocking call");
+    return true;
+  }
 
   private static void InterlockedMax(ref int location,
                                      int     value)
