@@ -4,6 +4,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Utils", "src\Armoni
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Utils.Tests", "tests\ArmoniK.Utils.Tests.csproj", "{1FC02853-1817-4D3C-ABBC-8C89A6851447}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Utils.Diagnostics", "diagnostics\ArmoniK.Utils.Diagnostics.csproj", "{A8983435-C495-4BE4-B51F-DA96AD4372D4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Utils.Diagnostics.Sample", "diagnostics.sample\ArmoniK.Utils.Diagnostics.Sample.csproj", "{720DB760-D7A2-4DD1-B0EB-2A36AB60F088}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -18,5 +22,13 @@ Global
 		{1FC02853-1817-4D3C-ABBC-8C89A6851447}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1FC02853-1817-4D3C-ABBC-8C89A6851447}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1FC02853-1817-4D3C-ABBC-8C89A6851447}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A8983435-C495-4BE4-B51F-DA96AD4372D4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A8983435-C495-4BE4-B51F-DA96AD4372D4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A8983435-C495-4BE4-B51F-DA96AD4372D4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A8983435-C495-4BE4-B51F-DA96AD4372D4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{720DB760-D7A2-4DD1-B0EB-2A36AB60F088}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{720DB760-D7A2-4DD1-B0EB-2A36AB60F088}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{720DB760-D7A2-4DD1-B0EB-2A36AB60F088}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{720DB760-D7A2-4DD1-B0EB-2A36AB60F088}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
