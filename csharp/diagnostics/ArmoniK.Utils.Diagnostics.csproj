@@ -9,6 +9,7 @@
     <AssemblyOriginatorKeyFile>../kp.snk</AssemblyOriginatorKeyFile>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <IsRoslynComponent>true</IsRoslynComponent>
+    <NoWarn>RS2007</NoWarn>
 
     <RootNamespace>ArmoniK.Utils.Diagnostics</RootNamespace>
     <AssemblyName>ArmoniK.Utils.Diagnostics</AssemblyName>
