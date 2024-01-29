@@ -2,7 +2,7 @@
 
 ### New Rules
 
-| Rule ID | Category | Severity | Notes              |
-|---------|----------|----------|--------------------|
-| AKU0001 | Usage    | Warning  | CollectionAnalyzer |
-| AKU0002 | Usage    | Warning  | CollectionAnalyzer |
+Rule ID | Category | Severity | Notes             
+--------|----------|----------|-------------------
+AKU0001 | Usage    | Warning  | CollectionAnalyzer
+AKU0002 | Usage    | Warning  | CollectionAnalyzer
