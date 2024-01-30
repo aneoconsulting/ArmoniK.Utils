@@ -37,14 +37,12 @@ public static class EnumerableExt
   /// <returns>A list containing the same elements as the input enumerable</returns>
   [PublicAPI]
   public static IList<T> AsIList<T>(this IEnumerable<T>? enumerable)
-  {
-    if (enumerable is null)
-    {
-      return Array.Empty<T>();
-    }
-
-    return enumerable as IList<T> ?? enumerable.ToList();
-  }
+    => enumerable switch
+       {
+         null          => Array.Empty<T>(),
+         IList<T> list => list,
+         _             => enumerable.ToArray(),
+       };
 
   /// <summary>
   ///   Convert an enumerable into a collection, if it is not already a collection
@@ -55,14 +53,12 @@ public static class EnumerableExt
   /// <returns>A collection containing the same elements as the input enumerable</returns>
   [PublicAPI]
   public static ICollection<T> AsICollection<T>(this IEnumerable<T>? enumerable)
-  {
-    if (enumerable is null)
-    {
-      return Array.Empty<T>();
-    }
-
-    return enumerable as ICollection<T> ?? enumerable.ToList();
-  }
+    => enumerable switch
+       {
+         null                => Array.Empty<T>(),
+         ICollection<T> list => list,
+         _                   => enumerable.ToArray(),
+       };
 
   /// <summary>
   ///   Split the elements of a sequence into chunks of size at most <paramref name="size" />.
