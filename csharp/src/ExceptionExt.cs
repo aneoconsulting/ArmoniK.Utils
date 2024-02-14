@@ -1,6 +1,6 @@
 // This file is part of the ArmoniK project
 //
-// Copyright (C) ANEO, 2022-2023.All rights reserved.
+// Copyright (C) ANEO, 2022-2024.All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
@@ -21,9 +21,15 @@ using JetBrains.Annotations;
 
 namespace ArmoniK.Utils;
 
-[PublicAPI]
+/// <summary>
+///   Extension class for <see cref="Exception" />
+/// </summary>
 public static class ExceptionExt
 {
+  /// <summary>
+  ///   Rethrow <paramref name="e" /> with its own stacktrace
+  /// </summary>
+  /// <param name="e">Exception to rethrow</param>
   [PublicAPI]
   [ContractAnnotation("=>halt")]
   public static void RethrowWithStacktrace(this Exception e)

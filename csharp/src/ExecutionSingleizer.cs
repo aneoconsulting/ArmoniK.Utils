@@ -1,6 +1,6 @@
 ﻿// This file is part of the ArmoniK project
 //
-// Copyright (C) ANEO, 2022-2022. All rights reserved.
+// Copyright (C) ANEO, 2022-2024. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ public class ExecutionSingleizer<T> : IDisposable
   private          Handle handle_ = new();
 
   /// <summary>
-  ///   Allow initialization of <see cref="ExecutionSingleizer" />
+  ///   Allow initialization of <see cref="ExecutionSingleizer{T}" />
   /// </summary>
   /// <param name="timeValidity">Results from the execution will be in cache during timeValidity</param>
   public ExecutionSingleizer(TimeSpan timeValidity = default)
