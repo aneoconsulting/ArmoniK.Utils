@@ -41,7 +41,7 @@ public class ExecutionSingleizerTest
       await single_.Call(_ => Task.FromResult(0),
                          CancellationToken.None)
                    .ConfigureAwait(false);
-      single_?.Dispose();
+      single_.Dispose();
       single_ = null;
     }
   }
