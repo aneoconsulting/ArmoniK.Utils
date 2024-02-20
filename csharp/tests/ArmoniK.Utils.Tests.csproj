@@ -3,10 +3,9 @@
   <PropertyGroup>
     <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
     <TargetFrameworks>net4.7;net4.8;net6.0;net7.0;net8.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
     <LangVersion>10.0</LangVersion>
     <Nullable>enable</Nullable>
-
-    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
