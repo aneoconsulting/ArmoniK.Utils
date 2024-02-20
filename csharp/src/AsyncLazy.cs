@@ -1,6 +1,6 @@
 // This file is part of the ArmoniK project
 //
-// Copyright (C) ANEO, 2022-2023.All rights reserved.
+// Copyright (C) ANEO, 2022-2024.All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ namespace ArmoniK.Utils;
 
 /// <summary>
 ///   Provides support for lazy asynchronous initialization of an object.
-///   This is a thin wrapper over `Lazy<Task<T>>` that can be awaited directly.
+///   This is a thin wrapper over `Lazy&lt;Task&lt;T&gt;&gt;` that can be awaited directly.
 /// </summary>
 /// <typeparam name="T">Type of the lazy value</typeparam>
 [PublicAPI]
@@ -61,7 +61,7 @@ public class AsyncLazy<T> : Lazy<Task<T>>
 
 /// <summary>
 ///   Provides support for lazy asynchronous initialization of an external object.
-///   This is a thin wrapper over `Lazy<Task>` that can be awaited directly.
+///   This is a thin wrapper over `Lazy&lt;Task&gt;` that can be awaited directly.
 /// </summary>
 [PublicAPI]
 public class AsyncLazy : Lazy<Task>
