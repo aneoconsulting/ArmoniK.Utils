@@ -138,8 +138,8 @@ public class ExecutionSingleizerTest
     for (var i = 0; i < n; ++i)
     {
       var j = results[i];
-      Assert.GreaterOrEqual(i,
-                            j);
+      Assert.That(j,
+                  Is.LessThanOrEqualTo(i));
     }
   }
 
