@@ -68,8 +68,6 @@ jobs:
             framework: "net4.7"
           - version: ""
             framework: "net4.8"
-          - version: "5.0"
-            framework: "net5.0"
           - version: "6.0"
             framework: "net6.0"
           - version: "7.0"
