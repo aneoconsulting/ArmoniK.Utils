@@ -34,8 +34,17 @@ public class ExecutionSingleizerTest
   }
 
   [TearDown]
-  public void TearDown()
-    => single_ = null;
+  public async Task TearDown()
+  {
+    if (single_ is not null)
+    {
+      await single_.Call(_ => Task.FromResult(0),
+                         CancellationToken.None)
+                   .ConfigureAwait(false);
+      single_.Dispose();
+      single_ = null;
+    }
+  }
 
   private ExecutionSingleizer<int>? single_;
   private int                       val_;
