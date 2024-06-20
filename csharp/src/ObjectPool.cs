@@ -82,10 +82,11 @@ namespace ArmoniK.Utils;
 /// <typeparam name="T">Type of the objects in the pool</typeparam>
 public class ObjectPool<T> : IDisposable, IAsyncDisposable
 {
-  private readonly ConcurrentBag<T>                             bag_;
-  private readonly Func<CancellationToken, ValueTask<T>>        createFunc_;
-  private readonly SemaphoreSlim                                sem_;
-  private readonly Func<T, CancellationToken, ValueTask<bool>>? validateFunc_;
+  private readonly ConcurrentBag<T>                                        bag_;
+  private readonly Func<CancellationToken, ValueTask<T>>                   createFunc_;
+  private readonly Func<T, Exception, CancellationToken, ValueTask<bool>>? onErrorFunc_;
+  private readonly SemaphoreSlim                                           sem_;
+  private readonly Func<T, CancellationToken, ValueTask<bool>>?            validateFunc_;
 
   /// <summary>
   ///   Create a new ObjectPool that can have at most <paramref name="max" /> objects created at the same time.
@@ -96,10 +97,12 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <param name="max">Maximum number of objects</param>
   /// <param name="createFunc">Function to call to create new objects</param>
   /// <param name="validateFunc">Function to call to check if an object is still valid and can be safely reused</param>
+  /// <param name="onErrorFunc">Function to call when an exception is raised</param>
   [PublicAPI]
-  public ObjectPool(int                                          max,
-                    Func<CancellationToken, ValueTask<T>>        createFunc,
-                    Func<T, CancellationToken, ValueTask<bool>>? validateFunc = null)
+  public ObjectPool(int                                                     max,
+                    Func<CancellationToken, ValueTask<T>>                   createFunc,
+                    Func<T, CancellationToken, ValueTask<bool>>?            validateFunc = null,
+                    Func<T, Exception, CancellationToken, ValueTask<bool>>? onErrorFunc  = null)
   {
     // For now, the object pool is constructed directly with 2 functions, but in the future
     // we might want to use a `ObjectPoolPolicy` instead, and make this constructor
@@ -115,6 +118,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     sem_          = new SemaphoreSlim(max);
     createFunc_   = createFunc;
     validateFunc_ = validateFunc;
+    onErrorFunc_  = onErrorFunc;
   }
 
   /// <summary>
@@ -122,12 +126,15 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// </summary>
   /// <param name="createFunc">Function to call to create new objects</param>
   /// <param name="validateFunc">Function to call to check if an object is still valid and can be safely reused</param>
+  /// <param name="onErrorFunc">Function to call when an exception is raised</param>
   [PublicAPI]
-  public ObjectPool(Func<CancellationToken, ValueTask<T>>        createFunc,
-                    Func<T, CancellationToken, ValueTask<bool>>? validateFunc = null)
+  public ObjectPool(Func<CancellationToken, ValueTask<T>>                   createFunc,
+                    Func<T, CancellationToken, ValueTask<bool>>?            validateFunc = null,
+                    Func<T, Exception, CancellationToken, ValueTask<bool>>? onErrorFunc  = null)
     : this(-1,
            createFunc,
-           validateFunc)
+           validateFunc,
+           onErrorFunc)
   {
   }
 
@@ -140,15 +147,23 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <param name="max">Maximum number of objects</param>
   /// <param name="createFunc">Function to call to create new objects</param>
   /// <param name="validateFunc">Function to call to check if an object is still valid and can be safely reused</param>
+  /// <param name="onErrorFunc">Function to call when an exception is raised</param>
   [PublicAPI]
-  public ObjectPool(int            max,
-                    Func<T>        createFunc,
-                    Func<T, bool>? validateFunc = null)
+  public ObjectPool(int                       max,
+                    Func<T>                   createFunc,
+                    Func<T, bool>?            validateFunc = null,
+                    Func<T, Exception, bool>? onErrorFunc  = null)
     : this(max,
            _ => new ValueTask<T>(createFunc()),
            validateFunc is not null
              ? (x,
                 _) => new ValueTask<bool>(validateFunc(x))
+             : null,
+           onErrorFunc is not null
+             ? (x,
+                e,
+                _) => new ValueTask<bool>(onErrorFunc(x,
+                                                      e))
              : null)
   {
   }
@@ -158,12 +173,15 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// </summary>
   /// <param name="createFunc">Function to call to create new objects</param>
   /// <param name="validateFunc">Function to call to check if an object is still valid and can be safely reused</param>
+  /// <param name="onErrorFunc">Function to call when an exception is raised</param>
   [PublicAPI]
-  public ObjectPool(Func<T>        createFunc,
-                    Func<T, bool>? validateFunc = null)
+  public ObjectPool(Func<T>                   createFunc,
+                    Func<T, bool>?            validateFunc = null,
+                    Func<T, Exception, bool>? onErrorFunc  = null)
     : this(-1,
            createFunc,
-           validateFunc)
+           validateFunc,
+           onErrorFunc)
   {
   }
 
@@ -270,16 +288,31 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   ///   This method has been marked private to avoid missing to call it.
   /// </remarks>
   /// <param name="obj">Object to release to the pool</param>
+  /// <param name="exception">Exception that occured during the lifetime of the object</param>
   /// <param name="cancellationToken">Cancellation token used for stopping the release</param>
   /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
   private async ValueTask Release(T                 obj,
+                                  Exception?        exception         = null,
                                   CancellationToken cancellationToken = default)
   {
     try
     {
-      var isValid = validateFunc_ is null || await validateFunc_(obj,
-                                                                 cancellationToken)
-                      .ConfigureAwait(false);
+      var isValid = true;
+
+      if (exception is not null && onErrorFunc_ is not null)
+      {
+        isValid = await onErrorFunc_(obj,
+                                     exception,
+                                     cancellationToken)
+                    .ConfigureAwait(false);
+      }
+
+      if (isValid && validateFunc_ is not null)
+      {
+        isValid = await validateFunc_(obj,
+                                      cancellationToken)
+                    .ConfigureAwait(false);
+      }
 
       if (isValid)
       {
@@ -380,10 +413,24 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   public async ValueTask<TOut> WithInstanceAsync<TOut>(Func<T, TOut>     f,
                                                        CancellationToken cancellationToken = default)
   {
-    await using var guard = await GetAsync(cancellationToken)
-                              .ConfigureAwait(false);
+    var guard = await GetAsync(cancellationToken)
+                  .ConfigureAwait(false);
 
-    return f(guard.Value);
+    try
+    {
+      return f(guard.Value);
+    }
+    catch (Exception e)
+    {
+      guard.RecordException(e);
+
+      throw;
+    }
+    finally
+    {
+      await guard.DisposeAsync()
+                 .ConfigureAwait(false);
+    }
   }
 
 
@@ -400,10 +447,24 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   public async ValueTask WithInstanceAsync(Action<T>         f,
                                            CancellationToken cancellationToken = default)
   {
-    await using var guard = await GetAsync(cancellationToken)
-                              .ConfigureAwait(false);
+    var guard = await GetAsync(cancellationToken)
+                  .ConfigureAwait(false);
 
-    f(guard.Value);
+    try
+    {
+      f(guard.Value);
+    }
+    catch (Exception e)
+    {
+      guard.RecordException(e);
+
+      throw;
+    }
+    finally
+    {
+      await guard.DisposeAsync()
+                 .ConfigureAwait(false);
+    }
   }
 
   /// <summary>
@@ -420,11 +481,25 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   public async ValueTask<TOut> WithInstanceAsync<TOut>(Func<T, ValueTask<TOut>> f,
                                                        CancellationToken        cancellationToken = default)
   {
-    await using var guard = await GetAsync(cancellationToken)
-                              .ConfigureAwait(false);
+    var guard = await GetAsync(cancellationToken)
+                  .ConfigureAwait(false);
 
-    return await f(guard.Value)
-             .ConfigureAwait(false);
+    try
+    {
+      return await f(guard.Value)
+               .ConfigureAwait(false);
+    }
+    catch (Exception e)
+    {
+      guard.RecordException(e);
+
+      throw;
+    }
+    finally
+    {
+      await guard.DisposeAsync()
+                 .ConfigureAwait(false);
+    }
   }
 
   /// <summary>
@@ -440,11 +515,25 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   public async ValueTask WithInstanceAsync(Func<T, ValueTask> f,
                                            CancellationToken  cancellationToken = default)
   {
-    await using var guard = await GetAsync(cancellationToken)
-                              .ConfigureAwait(false);
+    var guard = await GetAsync(cancellationToken)
+                  .ConfigureAwait(false);
 
-    await f(guard.Value)
-      .ConfigureAwait(false);
+    try
+    {
+      await f(guard.Value)
+        .ConfigureAwait(false);
+    }
+    catch (Exception e)
+    {
+      guard.RecordException(e);
+
+      throw;
+    }
+    finally
+    {
+      await guard.DisposeAsync()
+                 .ConfigureAwait(false);
+    }
   }
 
 
@@ -459,8 +548,22 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   [PublicAPI]
   public TOut WithInstance<TOut>(Func<T, TOut> f)
   {
-    using var guard = Get();
-    return f(guard.Value);
+    var guard = Get();
+
+    try
+    {
+      return f(guard.Value);
+    }
+    catch (Exception e)
+    {
+      guard.RecordException(e);
+
+      throw;
+    }
+    finally
+    {
+      guard.Dispose();
+    }
   }
 
 
@@ -474,8 +577,22 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   [PublicAPI]
   public void WithInstance(Action<T> f)
   {
-    using var guard = Get();
-    f(guard.Value);
+    var guard = Get();
+
+    try
+    {
+      f(guard.Value);
+    }
+    catch (Exception e)
+    {
+      guard.RecordException(e);
+
+      throw;
+    }
+    finally
+    {
+      guard.Dispose();
+    }
   }
 
   /// <summary>
@@ -484,6 +601,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// </summary>
   public sealed class Guard : IDisposable, IAsyncDisposable
   {
+    private Exception?     exception_;
     private ObjectPool<T>? pool_;
 
     private Guard(ObjectPool<T>     pool,
@@ -515,6 +633,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
       if (pool is not null)
       {
         await pool.Release(Value,
+                           exception_,
                            ReleaseCancellationToken)
                   .ConfigureAwait(false);
         GC.SuppressFinalize(this);
@@ -561,6 +680,13 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
                        obj,
                        cancellationToken);
     }
+
+    /// <summary>
+    ///   Record an external exception within the guard
+    /// </summary>
+    /// <param name="exception">Exception that occured while the guarded object was being used</param>
+    public void RecordException(Exception exception)
+      => exception_ = exception;
 
     /// <summary>
     ///   Get the acquired object
