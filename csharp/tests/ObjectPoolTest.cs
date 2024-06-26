@@ -27,6 +27,13 @@ namespace ArmoniK.Utils.Tests;
 // ReSharper disable UseAwaitUsing
 public class ObjectPoolTest
 {
+  public enum Project
+  {
+    No,
+    Sync,
+    Async,
+  }
+
   public enum UseMethod
   {
     Get,
@@ -38,15 +45,17 @@ public class ObjectPoolTest
   public async Task ReuseObjectsFromPoolShouldSucceed([Values] bool      asyncFactory,
                                                       [Values] UseMethod useMethod,
                                                       [Values] bool      asyncUse,
-                                                      [Values] bool      asyncContext)
+                                                      [Values] bool      asyncContext,
+                                                      [Values] Project   project)
   {
     var nbCreated = 0;
-    await using var pool = asyncFactory
-                             ? new ObjectPool<int>(_ => new ValueTask<int>(nbCreated++),
-                                                   (i,
-                                                    _) => new ValueTask<bool>(i % 2 == 0))
-                             : new ObjectPool<int>(() => nbCreated++,
-                                                   i => i % 2 == 0);
+    await using var pool = Projected(project,
+                                     asyncFactory
+                                       ? new ObjectPool<int>(_ => new ValueTask<int>(nbCreated++),
+                                                             (i,
+                                                              _) => new ValueTask<bool>(i % 2 == 0))
+                                       : new ObjectPool<int>(() => nbCreated++,
+                                                             i => i % 2 == 0));
 
     // ReSharper disable AccessToDisposedClosure
     async Task CheckAcquire(int created,
@@ -142,9 +151,10 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task PoolDisposeShouldSucceed([Values] bool asyncDisposable,
-                                             [Values] bool asyncDispose,
-                                             [Values] bool asyncFactory)
+  public async Task PoolDisposeShouldSucceed([Values] bool    asyncDisposable,
+                                             [Values] bool    asyncDispose,
+                                             [Values] bool    asyncFactory,
+                                             [Values] Project project)
   {
     var nbDisposed = 0;
 
@@ -153,9 +163,10 @@ public class ObjectPoolTest
            ? new AsyncDisposeAction(() => nbDisposed += 1)
            : new SyncDisposeAction(() => nbDisposed += 1);
 
-    var pool = asyncFactory
-                 ? new ObjectPool<object>(_ => new ValueTask<object>(Factory()))
-                 : new ObjectPool<object>(Factory);
+    var pool = Projected(project,
+                         asyncFactory
+                           ? new ObjectPool<object>(_ => new ValueTask<object>(Factory()))
+                           : new ObjectPool<object>(Factory));
 
     await using (var obj = await pool.GetAsync()
                                      .ConfigureAwait(false))
@@ -181,9 +192,10 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task ReturnDisposeShouldSucceed([Values] bool asyncDisposable,
-                                               [Values] bool asyncDispose,
-                                               [Values] bool asyncFactory)
+  public async Task ReturnDisposeShouldSucceed([Values] bool    asyncDisposable,
+                                               [Values] bool    asyncDispose,
+                                               [Values] bool    asyncFactory,
+                                               [Values] Project project)
   {
     var nbDisposed = 0;
 
@@ -192,12 +204,13 @@ public class ObjectPoolTest
            ? new AsyncDisposeAction(() => nbDisposed += 1)
            : new SyncDisposeAction(() => nbDisposed += 1);
 
-    var pool = asyncFactory
-                 ? new ObjectPool<object>(_ => new ValueTask<object>(Factory()),
-                                          (_,
-                                           _) => new ValueTask<bool>(false))
-                 : new ObjectPool<object>(Factory,
-                                          _ => false);
+    var pool = Projected(project,
+                         asyncFactory
+                           ? new ObjectPool<object>(_ => new ValueTask<object>(Factory()),
+                                                    (_,
+                                                     _) => new ValueTask<bool>(false))
+                           : new ObjectPool<object>(Factory,
+                                                    _ => false));
 
     var obj = await pool.GetAsync()
                         .ConfigureAwait(false);
@@ -235,9 +248,10 @@ public class ObjectPoolTest
   [Test]
   [SuppressMessage("ReSharper",
                    "AccessToModifiedClosure")]
-  public async Task DelayedReturnDisposeShouldSucceed([Values] bool asyncDisposable,
-                                                      [Values] bool asyncDispose,
-                                                      [Values] bool asyncFactory)
+  public async Task DelayedReturnDisposeShouldSucceed([Values] bool    asyncDisposable,
+                                                      [Values] bool    asyncDispose,
+                                                      [Values] bool    asyncFactory,
+                                                      [Values] Project project)
   {
     var nbDisposed = 0;
 
@@ -248,12 +262,13 @@ public class ObjectPoolTest
 
     var poolObjectsAreValid = true;
 
-    var pool = asyncFactory
-                 ? new ObjectPool<object>(_ => new ValueTask<object>(Factory()),
-                                          (_,
-                                           _) => new ValueTask<bool>(poolObjectsAreValid))
-                 : new ObjectPool<object>(Factory,
-                                          _ => poolObjectsAreValid);
+    var pool = Projected(project,
+                         asyncFactory
+                           ? new ObjectPool<object>(_ => new ValueTask<object>(Factory()),
+                                                    (_,
+                                                     _) => new ValueTask<bool>(poolObjectsAreValid))
+                           : new ObjectPool<object>(Factory,
+                                                    _ => poolObjectsAreValid));
 
     {
       var obj1 = await pool.GetAsync()
@@ -327,19 +342,21 @@ public class ObjectPoolTest
                                           [Values] bool      asyncFactory,
                                           [Values] UseMethod useMethod,
                                           [Values] bool      asyncUse,
-                                          [Values] bool      asyncContext)
+                                          [Values] bool      asyncContext,
+                                          [Values] Project   project)
   {
     // ReSharper disable AccessToDisposedClosure
     // ReSharper disable ConvertTypeCheckPatternToNullCheck
-    await using var pool = (max, asyncFactory) switch
-                           {
-                             (null, false) => new ObjectPool<int>(_ => new ValueTask<int>(0)),
-                             (null, true)  => new ObjectPool<int>(() => 0),
-                             (int m, false) => new ObjectPool<int>(m,
-                                                                   _ => new ValueTask<int>(0)),
-                             (int m, true) => new ObjectPool<int>(m,
-                                                                  () => 0),
-                           };
+    await using var pool = Projected(project,
+                                     (max, asyncFactory) switch
+                                     {
+                                       (null, false) => new ObjectPool<int>(_ => new ValueTask<int>(0)),
+                                       (null, true)  => new ObjectPool<int>(() => 0),
+                                       (int m, false) => new ObjectPool<int>(m,
+                                                                             _ => new ValueTask<int>(0)),
+                                       (int m, true) => new ObjectPool<int>(m,
+                                                                            () => 0),
+                                     });
     // ReSharper restore ConvertTypeCheckPatternToNullCheck
 
     var n = (max ?? -1) < 0
@@ -465,17 +482,19 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task AcquireCancellation([Values] bool asyncFactory)
+  public async Task AcquireCancellation([Values] bool    asyncFactory,
+                                        [Values] Project project)
   {
     var       nbCreated = 0;
     using var cts0      = new CancellationTokenSource();
     using var cts1      = new CancellationTokenSource();
     using var cts2      = new CancellationTokenSource();
-    await using var pool = asyncFactory
-                             ? new ObjectPool<int>(1,
-                                                   _ => new ValueTask<int>(nbCreated++))
-                             : new ObjectPool<int>(1,
-                                                   () => nbCreated++);
+    await using var pool = Projected(project,
+                                     asyncFactory
+                                       ? new ObjectPool<int>(1,
+                                                             _ => new ValueTask<int>(nbCreated++))
+                                       : new ObjectPool<int>(1,
+                                                             () => nbCreated++));
     cts0.Cancel();
     Assert.That(() => pool.GetAsync(cts0.Token),
                 Throws.InstanceOf<OperationCanceledException>());
@@ -490,18 +509,19 @@ public class ObjectPoolTest
 
 
   [Test]
-  public async Task CreateCancellation()
+  public async Task CreateCancellation([Values] Project project)
   {
     var       nbCreated = 0;
     using var cts       = new CancellationTokenSource();
-    await using var pool = new ObjectPool<int>(1,
-                                               async ct =>
-                                               {
-                                                 await Task.Delay(100,
-                                                                  ct)
-                                                           .ConfigureAwait(false);
-                                                 return nbCreated++;
-                                               });
+    await using var pool = Projected(project,
+                                     new ObjectPool<int>(1,
+                                                         async ct =>
+                                                         {
+                                                           await Task.Delay(100,
+                                                                            ct)
+                                                                     .ConfigureAwait(false);
+                                                           return nbCreated++;
+                                                         }));
 
     var acquireTask = pool.GetAsync(cts.Token);
 
@@ -521,21 +541,22 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task CreateFailure()
+  public async Task CreateFailure([Values] Project project)
   {
     var mustThrow = true;
 
-    await using var pool = new ObjectPool<int>(1,
-                                               _ =>
-                                               {
-                                                 if (!mustThrow)
-                                                 {
-                                                   return new ValueTask<int>(0);
-                                                 }
+    await using var pool = Projected(project,
+                                     new ObjectPool<int>(1,
+                                                         _ =>
+                                                         {
+                                                           if (!mustThrow)
+                                                           {
+                                                             return new ValueTask<int>(0);
+                                                           }
 
-                                                 mustThrow = false;
-                                                 throw new ApplicationException("");
-                                               });
+                                                           mustThrow = false;
+                                                           throw new ApplicationException("");
+                                                         }));
 
     Assert.That(() => pool.GetAsync(),
                 Throws.TypeOf<ApplicationException>());
@@ -551,24 +572,25 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task ReturnFailure()
+  public async Task ReturnFailure([Values] Project project)
   {
     var nbCreated = 0;
     var mustThrow = true;
 
-    await using var pool = new ObjectPool<int>(1,
-                                               _ => new ValueTask<int>(nbCreated++),
-                                               (_,
-                                                _) =>
-                                               {
-                                                 if (!mustThrow)
-                                                 {
-                                                   return new ValueTask<bool>(true);
-                                                 }
+    await using var pool = Projected(project,
+                                     new ObjectPool<int>(1,
+                                                         _ => new ValueTask<int>(nbCreated++),
+                                                         (_,
+                                                          _) =>
+                                                         {
+                                                           if (!mustThrow)
+                                                           {
+                                                             return new ValueTask<bool>(true);
+                                                           }
 
-                                                 mustThrow = false;
-                                                 throw new ApplicationException("");
-                                               });
+                                                           mustThrow = false;
+                                                           throw new ApplicationException("");
+                                                         }));
 
     var obj = await pool.GetAsync()
                         .ConfigureAwait(false);
@@ -590,18 +612,19 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task GuardFinalizer()
+  public async Task GuardFinalizer([Values] Project project)
   {
     var nbCreated  = 0;
     var nbDisposed = 0;
-    await using var pool = new ObjectPool<object>(1,
-                                                  _ =>
-                                                  {
-                                                    nbCreated += 1;
-                                                    return new ValueTask<object>(new AsyncDisposeAction(() => nbDisposed += 1));
-                                                  },
-                                                  (_,
-                                                   _) => new ValueTask<bool>(false));
+    await using var pool = Projected(project,
+                                     new ObjectPool<object>(1,
+                                                            _ =>
+                                                            {
+                                                              nbCreated += 1;
+                                                              return new ValueTask<object>(new AsyncDisposeAction(() => nbDisposed += 1));
+                                                            },
+                                                            (_,
+                                                             _) => new ValueTask<bool>(false)));
 
     var guardWeakReference = await CallWithOwnContext(async () =>
                                                       {
@@ -628,19 +651,20 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task PoolFinalizer()
+  public async Task PoolFinalizer([Values] Project project)
   {
     var nbCreated  = 0;
     var nbDisposed = 0;
 
     var poolWeakReference = await CallWithOwnContext(async () =>
                                                      {
-                                                       var pool = new ObjectPool<object>(1,
-                                                                                         _ =>
-                                                                                         {
-                                                                                           nbCreated += 1;
-                                                                                           return new ValueTask<object>(new Deferrer(() => nbDisposed += 1));
-                                                                                         });
+                                                       var pool = Projected(project,
+                                                                            new ObjectPool<object>(1,
+                                                                                                   _ =>
+                                                                                                   {
+                                                                                                     nbCreated += 1;
+                                                                                                     return new ValueTask<object>(new Deferrer(() => nbDisposed += 1));
+                                                                                                   }));
 
                                                        await using (await pool.GetAsync()
                                                                               .ConfigureAwait(false))
@@ -674,21 +698,23 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task Finalizer()
+  public async Task Finalizer([Values] Project project)
   {
     var nbCreated  = 0;
     var nbDisposed = 0;
 
     var (poolWeakReference, guardWeakReference) = await CallWithOwnContext(async () =>
                                                                            {
-                                                                             var pool = new ObjectPool<object>(1,
-                                                                                                               _ =>
-                                                                                                               {
-                                                                                                                 nbCreated += 1;
-                                                                                                                 return new
-                                                                                                                   ValueTask<object>(new Deferrer(() => nbDisposed +=
-                                                                                                                                                          1));
-                                                                                                               });
+                                                                             var pool = Projected(project,
+                                                                                                  new ObjectPool<object>(1,
+                                                                                                                         _ =>
+                                                                                                                         {
+                                                                                                                           nbCreated += 1;
+                                                                                                                           return new
+                                                                                                                             ValueTask<
+                                                                                                                               object>(new Deferrer(() => nbDisposed +=
+                                                                                                                                                            1));
+                                                                                                                         }));
 
                                                                              var guard = await pool.GetAsync();
 
@@ -717,9 +743,12 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task PoolDisposeWithGuardAlive([Values] bool asyncDispose)
+  public async Task PoolDisposeWithGuardAlive([Values] bool    asyncDispose,
+                                              [Values] Project project)
   {
-    var pool = new ObjectPool<ValueTuple>(_ => new ValueTask<ValueTuple>(new ValueTuple()));
+    var pool = Projected(project,
+                         new ObjectPool<ValueTuple>(10,
+                                                    _ => new ValueTask<ValueTuple>(new ValueTuple())));
 
     var guard = await pool.GetAsync()
                           .ConfigureAwait(false);
@@ -745,8 +774,9 @@ public class ObjectPoolTest
 
 
   [Test]
-  public async Task PoolDisposeThrow([Values] bool asyncDisposable,
-                                     [Values] bool asyncDispose)
+  public async Task PoolDisposeThrow([Values] bool    asyncDisposable,
+                                     [Values] bool    asyncDispose,
+                                     [Values] Project project)
   {
     var nbDisposed = 0;
 
@@ -761,10 +791,11 @@ public class ObjectPoolTest
       }
     }
 
-    var pool = new ObjectPool<object>(10,
-                                      _ => new ValueTask<object>(asyncDisposable
-                                                                   ? new AsyncDisposeAction(Dispose)
-                                                                   : new SyncDisposeAction(Dispose)));
+    var pool = Projected(project,
+                         new ObjectPool<object>(10,
+                                                _ => new ValueTask<object>(asyncDisposable
+                                                                             ? new AsyncDisposeAction(Dispose)
+                                                                             : new SyncDisposeAction(Dispose))));
 
 
     await using (await pool.GetAsync()
@@ -810,14 +841,16 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task ReturnDisposeThrow([Values] bool asyncDisposable,
-                                       [Values] bool asyncDispose)
+  public async Task ReturnDisposeThrow([Values] bool    asyncDisposable,
+                                       [Values] bool    asyncDispose,
+                                       [Values] Project project)
   {
-    var pool = new ObjectPool<object>(_ => new ValueTask<object>(asyncDisposable
-                                                                   ? new AsyncDisposeAction(() => throw new ApplicationException())
-                                                                   : new SyncDisposeAction(() => throw new ApplicationException())),
-                                      (_,
-                                       _) => new ValueTask<bool>(false));
+    var pool = Projected(project,
+                         new ObjectPool<object>(_ => new ValueTask<object>(asyncDisposable
+                                                                             ? new AsyncDisposeAction(() => throw new ApplicationException())
+                                                                             : new SyncDisposeAction(() => throw new ApplicationException())),
+                                                (_,
+                                                 _) => new ValueTask<bool>(false)));
 
     var obj = await pool.GetAsync()
                         .ConfigureAwait(false);
@@ -865,6 +898,29 @@ public class ObjectPoolTest
     {
       return false;
     }
+  }
+
+  private static ObjectPool<T> Projected<T>(Project       project,
+                                            ObjectPool<T> pool,
+                                            bool          disposeBasePool = true)
+  {
+    var newPool = project switch
+                  {
+                    Project.No   => pool,
+                    Project.Sync => pool.Project(x => x),
+                    Project.Async => pool.Project((x,
+                                                   _) => new ValueTask<T>(x)),
+                    _ => throw new ArgumentException("Invalid project",
+                                                     nameof(project)),
+                  };
+
+    if (disposeBasePool && !ReferenceEquals(pool,
+                                            newPool))
+    {
+      pool.Dispose();
+    }
+
+    return newPool;
   }
 
   private record SyncDisposeAction(Action F) : IDisposable
