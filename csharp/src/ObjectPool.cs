@@ -28,12 +28,14 @@ namespace ArmoniK.Utils;
 /// <summary>
 ///   Class to manage a plain pool of objects of type <typeparamref name="T" />
 /// </summary>
-internal sealed class PlainObjectPool<T> : ISyncOrAsyncDisposable
+internal sealed class PlainObjectPool<T> : IRefDisposable
 {
   private readonly ConcurrentBag<T>                             bag_;
   private readonly Func<CancellationToken, ValueTask<T>>        createFunc_;
   private readonly SemaphoreSlim?                               sem_;
   private readonly Func<T, CancellationToken, ValueTask<bool>>? validateFunc_;
+
+  private int refCount_;
 
   /// <summary>
   ///   Create a new ObjectPool that can have at most <paramref name="max" /> objects created at the same time.
@@ -113,6 +115,17 @@ internal sealed class PlainObjectPool<T> : ISyncOrAsyncDisposable
       throw new AggregateException(errors);
     }
   }
+
+  public IRefDisposable AcquireRef()
+  {
+    Interlocked.Increment(ref refCount_);
+    return this;
+  }
+
+  public IRefDisposable? ReleaseRef()
+    => Interlocked.Decrement(ref refCount_) == 0
+         ? this
+         : null;
 
   // An object pool has only references to managed objects.
   // So finalizer is not required as it will be called directly by the underlying resources
@@ -236,8 +249,10 @@ internal sealed class PlainObjectPool<T> : ISyncOrAsyncDisposable
 /// <summary>
 ///   Both IDisposable and IAsyncDisposable.
 /// </summary>
-internal interface ISyncOrAsyncDisposable : IDisposable, IAsyncDisposable
+internal interface IRefDisposable : IDisposable, IAsyncDisposable
 {
+  internal IRefDisposable  AcquireRef();
+  internal IRefDisposable? ReleaseRef();
 }
 
 /// <summary>
@@ -298,22 +313,29 @@ internal interface ISyncOrAsyncDisposable : IDisposable, IAsyncDisposable
 public class ObjectPool<T> : IDisposable, IAsyncDisposable
 {
   private readonly Func<CancellationToken, ValueTask<(T, Func<CancellationToken, ValueTask>)>> acquire_;
-  private          ISyncOrAsyncDisposable?                                                     dispose_;
+  private          IRefDisposable?                                                             dispose_;
+
+  private ObjectPool(Func<CancellationToken, ValueTask<(T, Func<CancellationToken, ValueTask>)>> acquire,
+                     IRefDisposable?                                                             dispose)
+  {
+    acquire_ = acquire;
+    dispose_ = dispose?.AcquireRef();
+  }
 
   /// <summary>
   ///   Construct a new object pool from a plain object pool
   /// </summary>
   /// <param name="pool">The plain object pool to wrap</param>
   private ObjectPool(PlainObjectPool<T> pool)
+    : this(async cancellationToken =>
+           {
+             var x = await pool.Acquire(cancellationToken)
+                               .ConfigureAwait(false);
+             return (x, ct => pool.Release(x,
+                                           ct));
+           },
+           pool)
   {
-    dispose_ = pool;
-    acquire_ = async cancellationToken =>
-               {
-                 var x = await pool.Acquire(cancellationToken)
-                                   .ConfigureAwait(false);
-                 return (x, ct => pool.Release(x,
-                                               ct));
-               };
   }
 
   /// <summary>
@@ -389,14 +411,52 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   public ValueTask DisposeAsync()
     => Interlocked.Exchange(ref dispose_,
                             null)
+                  ?.ReleaseRef()
                   ?.DisposeAsync() ?? new ValueTask();
 
   /// <inheritdoc />
   public void Dispose()
     => Interlocked.Exchange(ref dispose_,
                             null)
+                  ?.ReleaseRef()
                   ?.Dispose();
 
+  /// <summary>
+  ///   Create a new ObjectPool where the objects are taken from the original pool,
+  ///   and transformed by the projection to be stored in the Guard
+  /// </summary>
+  /// <param name="projection"></param>
+  /// <typeparam name="TOut">Type of the objects in the new object pool</typeparam>
+  /// <returns>ObjectPool</returns>
+  [PublicAPI]
+  public ObjectPool<TOut> Project<TOut>(Func<T, TOut> projection)
+    => new(async ct =>
+           {
+             var (x, release) = await acquire_(ct)
+                                  .ConfigureAwait(false);
+             return (projection(x), release);
+           },
+           dispose_);
+
+  /// <summary>
+  ///   Create a new ObjectPool where the objects are taken from the original pool,
+  ///   and transformed by the projection to be stored in the Guard
+  /// </summary>
+  /// <param name="projection"></param>
+  /// <typeparam name="TOut">Type of the objects in the new object pool</typeparam>
+  /// <returns>ObjectPool</returns>
+  [PublicAPI]
+  public ObjectPool<TOut> Project<TOut>(Func<T, CancellationToken, ValueTask<TOut>> projection)
+    => new(async ct =>
+           {
+             var (x, release) = await acquire_(ct)
+                                  .ConfigureAwait(false);
+             var y = await projection(x,
+                                      ct)
+                       .ConfigureAwait(false);
+             return (y, release);
+           },
+           dispose_);
 
   /// <summary>
   ///   Acquire a new object from the pool, creating it if there is no object in the pool.
