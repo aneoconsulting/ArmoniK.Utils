@@ -46,7 +46,8 @@ public class ObjectPoolTest
                                                       [Values] UseMethod useMethod,
                                                       [Values] bool      asyncUse,
                                                       [Values] bool      asyncContext,
-                                                      [Values] Project   project)
+                                                      [Values] Project   project,
+                                                      [Values] Project   projectGet)
   {
     var nbCreated = 0;
     await using var pool = Projected(project,
@@ -67,14 +68,14 @@ public class ObjectPoolTest
       switch (useMethod, asyncContext, asyncUse)
       {
         case (UseMethod.Get, _, _):
-          var obj0 = asyncUse
-                       ? await pool.GetAsync()
-                                   .ConfigureAwait(false)
-                       : pool.Get();
-          var obj1 = asyncUse
-                       ? await pool.GetAsync()
-                                   .ConfigureAwait(false)
-                       : pool.Get();
+          var obj0 = await Get(pool,
+                               asyncUse,
+                               projectGet)
+                       .ConfigureAwait(false);
+          var obj1 = await Get(pool,
+                               asyncUse,
+                               projectGet)
+                       .ConfigureAwait(false);
 
           val0 = obj0;
           val1 = obj1;
@@ -195,7 +196,8 @@ public class ObjectPoolTest
   public async Task ReturnDisposeShouldSucceed([Values] bool    asyncDisposable,
                                                [Values] bool    asyncDispose,
                                                [Values] bool    asyncFactory,
-                                               [Values] Project project)
+                                               [Values] Project project,
+                                               [Values] Project projectGet)
   {
     var nbDisposed = 0;
 
@@ -212,8 +214,10 @@ public class ObjectPoolTest
                            : new ObjectPool<object>(Factory,
                                                     _ => false));
 
-    var obj = await pool.GetAsync()
-                        .ConfigureAwait(false);
+    var obj = await Get(pool,
+                        true,
+                        projectGet)
+                .ConfigureAwait(false);
 
     Assert.That(nbDisposed,
                 Is.EqualTo(0));
@@ -251,7 +255,8 @@ public class ObjectPoolTest
   public async Task DelayedReturnDisposeShouldSucceed([Values] bool    asyncDisposable,
                                                       [Values] bool    asyncDispose,
                                                       [Values] bool    asyncFactory,
-                                                      [Values] Project project)
+                                                      [Values] Project project,
+                                                      [Values] Project projectGet)
   {
     var nbDisposed = 0;
 
@@ -271,10 +276,14 @@ public class ObjectPoolTest
                                                     _ => poolObjectsAreValid));
 
     {
-      var obj1 = await pool.GetAsync()
-                           .ConfigureAwait(false);
-      var obj2 = await pool.GetAsync()
-                           .ConfigureAwait(false);
+      var obj1 = await Get(pool,
+                           true,
+                           projectGet)
+                   .ConfigureAwait(false);
+      var obj2 = await Get(pool,
+                           true,
+                           projectGet)
+                   .ConfigureAwait(false);
 
       Assert.That(nbDisposed,
                   Is.EqualTo(0));
@@ -299,8 +308,10 @@ public class ObjectPoolTest
     poolObjectsAreValid = false;
 
     {
-      var obj = await pool.GetAsync()
-                          .ConfigureAwait(false);
+      var obj = await Get(pool,
+                          true,
+                          projectGet)
+                  .ConfigureAwait(false);
 
       Assert.That(nbDisposed,
                   Is.EqualTo(2));
@@ -343,7 +354,8 @@ public class ObjectPoolTest
                                           [Values] UseMethod useMethod,
                                           [Values] bool      asyncUse,
                                           [Values] bool      asyncContext,
-                                          [Values] Project   project)
+                                          [Values] Project   project,
+                                          [Values] Project   projectGet)
   {
     // ReSharper disable AccessToDisposedClosure
     // ReSharper disable ConvertTypeCheckPatternToNullCheck
@@ -366,32 +378,24 @@ public class ObjectPoolTest
 
     Func<Func<ValueTask>, ValueTask> recurse = (useMethod, asyncContext, asyncUse) switch
                                                {
-                                                 (UseMethod.Get, false, false) => async f =>
-                                                                                  {
-                                                                                    using var guard = pool.Get();
-                                                                                    await f()
-                                                                                      .ConfigureAwait(false);
-                                                                                  },
-                                                 (UseMethod.Get, false, true) => async f =>
-                                                                                 {
-                                                                                   using var guard = await pool.GetAsync()
-                                                                                                               .ConfigureAwait(false);
-                                                                                   await f()
-                                                                                     .ConfigureAwait(false);
-                                                                                 },
-                                                 (UseMethod.Get, true, false) => async f =>
-                                                                                 {
-                                                                                   await using var guard = pool.Get();
-                                                                                   await f()
-                                                                                     .ConfigureAwait(false);
-                                                                                 },
-                                                 (UseMethod.Get, true, true) => async f =>
-                                                                                {
-                                                                                  await using var guard = await pool.GetAsync()
-                                                                                                                    .ConfigureAwait(false);
-                                                                                  await f()
-                                                                                    .ConfigureAwait(false);
-                                                                                },
+                                                 (UseMethod.Get, false, _) => async f =>
+                                                                              {
+                                                                                using var guard = await Get(pool,
+                                                                                                            asyncUse,
+                                                                                                            projectGet)
+                                                                                                    .ConfigureAwait(false);
+                                                                                await f()
+                                                                                  .ConfigureAwait(false);
+                                                                              },
+                                                 (UseMethod.Get, true, _) => async f =>
+                                                                             {
+                                                                               await using var guard = await Get(pool,
+                                                                                                                 asyncUse,
+                                                                                                                 projectGet)
+                                                                                                         .ConfigureAwait(false);
+                                                                               await f()
+                                                                                 .ConfigureAwait(false);
+                                                                             },
                                                  (UseMethod.WithFunc, false, _) => f =>
                                                                                    {
                                                                                      _ = pool.WithInstance(x =>
@@ -612,7 +616,8 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task GuardFinalizer([Values] Project project)
+  public async Task GuardFinalizer([Values] Project project,
+                                   [Values] Project projectGet)
   {
     var nbCreated  = 0;
     var nbDisposed = 0;
@@ -628,7 +633,9 @@ public class ObjectPoolTest
 
     var guardWeakReference = await CallWithOwnContext(async () =>
                                                       {
-                                                        var guard = await pool.GetAsync();
+                                                        var guard = await Get(pool,
+                                                                              true,
+                                                                              projectGet);
 
                                                         GC.Collect();
                                                         GC.WaitForPendingFinalizers();
@@ -698,7 +705,8 @@ public class ObjectPoolTest
   }
 
   [Test]
-  public async Task Finalizer([Values] Project project)
+  public async Task Finalizer([Values] Project project,
+                              [Values] Project projectGet)
   {
     var nbCreated  = 0;
     var nbDisposed = 0;
@@ -716,7 +724,10 @@ public class ObjectPoolTest
                                                                                                                                                             1));
                                                                                                                          }));
 
-                                                                             var guard = await pool.GetAsync();
+                                                                             var guard = await Get(pool,
+                                                                                                   true,
+                                                                                                   projectGet)
+                                                                                           .ConfigureAwait(false);
 
                                                                              GC.Collect();
                                                                              GC.WaitForPendingFinalizers();
@@ -744,14 +755,17 @@ public class ObjectPoolTest
 
   [Test]
   public async Task PoolDisposeWithGuardAlive([Values] bool    asyncDispose,
-                                              [Values] Project project)
+                                              [Values] Project project,
+                                              [Values] Project projectGet)
   {
     var pool = Projected(project,
                          new ObjectPool<ValueTuple>(10,
                                                     _ => new ValueTask<ValueTuple>(new ValueTuple())));
 
-    var guard = await pool.GetAsync()
-                          .ConfigureAwait(false);
+    var guard = await Get(pool,
+                          true,
+                          projectGet)
+                  .ConfigureAwait(false);
 
     Assert.Multiple(() =>
                     {
@@ -843,7 +857,8 @@ public class ObjectPoolTest
   [Test]
   public async Task ReturnDisposeThrow([Values] bool    asyncDisposable,
                                        [Values] bool    asyncDispose,
-                                       [Values] Project project)
+                                       [Values] Project project,
+                                       [Values] Project projectGet)
   {
     var pool = Projected(project,
                          new ObjectPool<object>(_ => new ValueTask<object>(asyncDisposable
@@ -852,8 +867,10 @@ public class ObjectPoolTest
                                                 (_,
                                                  _) => new ValueTask<bool>(false)));
 
-    var obj = await pool.GetAsync()
-                        .ConfigureAwait(false);
+    var obj = await Get(pool,
+                        true,
+                        projectGet)
+                .ConfigureAwait(false);
 
     if (asyncDispose)
     {
@@ -922,6 +939,21 @@ public class ObjectPoolTest
 
     return newPool;
   }
+
+  private static ValueTask<ObjectPool<T>.Guard> Get<T>(ObjectPool<T> pool,
+                                                       bool          async,
+                                                       Project       project)
+    => (async, project) switch
+       {
+         (false, Project.No)    => new ValueTask<ObjectPool<T>.Guard>(pool.Get()),
+         (false, Project.Sync)  => new ValueTask<ObjectPool<T>.Guard>(pool.Get(x => x)),
+         (false, Project.Async) => new ValueTask<ObjectPool<T>.Guard>(pool.Get(x => x)),
+         (true, Project.No)     => pool.GetAsync(),
+         (true, Project.Sync)   => pool.GetAsync(x => x),
+         (true, Project.Async)  => pool.GetAsync(x => new ValueTask<T>(x)),
+         _ => throw new ArgumentException("Invalid",
+                                          nameof(project)),
+       };
 
   private record SyncDisposeAction(Action F) : IDisposable
   {
