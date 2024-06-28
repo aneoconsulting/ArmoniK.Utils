@@ -425,7 +425,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   ///   Create a new ObjectPool where the objects are taken from the original pool,
   ///   and transformed by the projection to be stored in the Guard
   /// </summary>
-  /// <param name="projection"></param>
+  /// <param name="projection">Function that transform the pooled objected into another</param>
   /// <typeparam name="TOut">Type of the objects in the new object pool</typeparam>
   /// <returns>ObjectPool</returns>
   [PublicAPI]
@@ -442,7 +442,7 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   ///   Create a new ObjectPool where the objects are taken from the original pool,
   ///   and transformed by the projection to be stored in the Guard
   /// </summary>
-  /// <param name="projection"></param>
+  /// <param name="projection">Function that transform the pooled objected into another</param>
   /// <typeparam name="TOut">Type of the objects in the new object pool</typeparam>
   /// <returns>ObjectPool</returns>
   [PublicAPI]
@@ -489,10 +489,77 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <remarks>
   ///   If an exception is thrown during the creation of the object, acquire is cancelled (semaphore is released).
   /// </remarks>
+  /// <param name="projection">Function that transform the pooled objected into another</param>
+  /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
+  /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
+  /// <returns>A guard that contains the acquired object.</returns>
+  [PublicAPI]
+  public async ValueTask<ObjectPool<TOut>.Guard> GetAsync<TOut>(Func<T, TOut>     projection,
+                                                                CancellationToken cancellationToken = default)
+  {
+    var (x, release) = await acquire_(cancellationToken)
+                         .ConfigureAwait(false);
+    var y = projection(x);
+    return new ObjectPool<TOut>.Guard(y,
+                                      release,
+                                      cancellationToken);
+  }
+
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   The method returns a guard that contains the acquired object, and that automatically release the object when
+  ///   disposed.
+  /// </summary>
+  /// <remarks>
+  ///   If an exception is thrown during the creation of the object, acquire is cancelled (semaphore is released).
+  /// </remarks>
+  /// <param name="projection">Function that transform the pooled objected into another</param>
+  /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
+  /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
+  /// <returns>A guard that contains the acquired object.</returns>
+  [PublicAPI]
+  public async ValueTask<ObjectPool<TOut>.Guard> GetAsync<TOut>(Func<T, ValueTask<TOut>> projection,
+                                                                CancellationToken        cancellationToken = default)
+  {
+    var (x, release) = await acquire_(cancellationToken)
+                         .ConfigureAwait(false);
+    var y = await projection(x)
+              .ConfigureAwait(false);
+    return new ObjectPool<TOut>.Guard(y,
+                                      release,
+                                      cancellationToken);
+  }
+
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   The method returns a guard that contains the acquired object, and that automatically release the object when
+  ///   disposed.
+  /// </summary>
+  /// <remarks>
+  ///   If an exception is thrown during the creation of the object, acquire is cancelled (semaphore is released).
+  /// </remarks>
   /// <returns>A guard that contains the acquired object.</returns>
   [PublicAPI]
   public Guard Get()
     => GetAsync()
+      .WaitSync();
+
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   The method returns a guard that contains the acquired object, and that automatically release the object when
+  ///   disposed.
+  /// </summary>
+  /// <remarks>
+  ///   If an exception is thrown during the creation of the object, acquire is cancelled (semaphore is released).
+  /// </remarks>
+  /// <param name="projection">Function that transform the pooled objected into another</param>
+  /// <returns>A guard that contains the acquired object.</returns>
+  [PublicAPI]
+  public ObjectPool<TOut>.Guard Get<TOut>(Func<T, TOut> projection)
+    => GetAsync(projection)
       .WaitSync();
 
 
