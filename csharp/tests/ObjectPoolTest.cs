@@ -487,28 +487,97 @@ public class ObjectPoolTest
 
   [Test]
   public async Task AcquireCancellation([Values] bool    asyncFactory,
-                                        [Values] Project project)
+                                        [Values] Project project,
+                                        [Values] Project projectGet)
   {
-    var       nbCreated = 0;
-    using var cts0      = new CancellationTokenSource();
-    using var cts1      = new CancellationTokenSource();
-    using var cts2      = new CancellationTokenSource();
+    var       nbCreated  = 0;
+    var       nbDisposed = 0;
+    using var cts0       = new CancellationTokenSource();
+    using var cts1       = new CancellationTokenSource();
+    using var cts2       = new CancellationTokenSource();
     await using var pool = Projected(project,
                                      asyncFactory
-                                       ? new ObjectPool<int>(1,
-                                                             _ => new ValueTask<int>(nbCreated++))
-                                       : new ObjectPool<int>(1,
-                                                             () => nbCreated++));
+                                       ? new ObjectPool<IDisposable>(1,
+                                                                     _ =>
+                                                                     {
+                                                                       nbCreated++;
+                                                                       return new ValueTask<IDisposable>(new SyncDisposeAction(() => nbDisposed++));
+                                                                     },
+                                                                     (_,
+                                                                      _) => new ValueTask<bool>(false))
+                                       : new ObjectPool<IDisposable>(1,
+                                                                     () =>
+                                                                     {
+                                                                       nbCreated++;
+                                                                       return new SyncDisposeAction(() => nbDisposed++);
+                                                                     },
+                                                                     _ => false));
     cts0.Cancel();
-    Assert.That(() => pool.GetAsync(cts0.Token),
+    Assert.That(() => Get(pool,
+                          true,
+                          projectGet,
+                          cts0.Token),
                 Throws.InstanceOf<OperationCanceledException>());
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(nbCreated,
+                                  Is.EqualTo(0));
+                      Assert.That(nbDisposed,
+                                  Is.EqualTo(0));
+                    });
 
-    await using var obj = await pool.GetAsync(CancellationToken.None)
-                                    .ConfigureAwait(false);
-    var acquireTask = pool.GetAsync(cts2.Token);
-    cts2.Cancel();
-    Assert.That(() => acquireTask,
-                Throws.InstanceOf<OperationCanceledException>());
+    await using (var obj = await Get(pool,
+                                     true,
+                                     projectGet,
+                                     CancellationToken.None)
+                             .ConfigureAwait(false))
+    {
+      _ = obj;
+      var acquireTask = Get(pool,
+                            true,
+                            projectGet,
+                            cts1.Token);
+      await Task.Delay(1,
+                       CancellationToken.None)
+                .ConfigureAwait(false);
+      cts1.Cancel();
+      Assert.That(() => acquireTask,
+                  Throws.InstanceOf<OperationCanceledException>());
+    }
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(nbCreated,
+                                  Is.EqualTo(1));
+                      Assert.That(nbDisposed,
+                                  Is.EqualTo(1));
+                    });
+
+    if (projectGet is Project.Async)
+    {
+      var acquireTask = pool.GetAsync(async x =>
+                                      {
+                                        await Task.Delay(100,
+                                                         // ReSharper disable once AccessToDisposedClosure
+                                                         cts2.Token)
+                                                  .ConfigureAwait(false);
+                                        return x;
+                                      },
+                                      cts2.Token);
+      await Task.Delay(1,
+                       CancellationToken.None)
+                .ConfigureAwait(false);
+      cts2.Cancel();
+      Assert.That(() => acquireTask,
+                  Throws.InstanceOf<OperationCanceledException>());
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(nbCreated,
+                                    Is.EqualTo(2));
+                        Assert.That(nbDisposed,
+                                    Is.EqualTo(2));
+                      });
+    }
   }
 
 
@@ -573,6 +642,159 @@ public class ObjectPoolTest
 
     Assert.That(obj.Value,
                 Is.EqualTo(0));
+  }
+
+  [Test]
+  public async Task ProjectDispose([Values] bool asyncProject,
+                                   [Values] bool disposeOrder)
+  {
+    var nbCreated    = 0;
+    var nbProjection = 0;
+    var nbDisposed   = 0;
+
+    var pool0 = new ObjectPool<object>(() =>
+                                       {
+                                         nbCreated++;
+                                         return new SyncDisposeAction(() => nbDisposed++);
+                                       });
+
+    var pool1 = asyncProject
+                  ? pool0.Project((x,
+                                   _) =>
+                                  {
+                                    nbProjection++;
+                                    return new ValueTask<object>(x);
+                                  })
+                  : pool0.Project(x =>
+                                  {
+                                    nbProjection++;
+                                    return x;
+                                  });
+
+    await using (var obj = await pool1.GetAsync()
+                                      .ConfigureAwait(false))
+    {
+      _ = obj;
+    }
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(nbCreated,
+                                  Is.EqualTo(1));
+                      Assert.That(nbProjection,
+                                  Is.EqualTo(1));
+                      Assert.That(nbDisposed,
+                                  Is.EqualTo(0));
+                    });
+
+    await using (var obj = await pool1.GetAsync()
+                                      .ConfigureAwait(false))
+    {
+      _ = obj;
+    }
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(nbCreated,
+                                  Is.EqualTo(1));
+                      Assert.That(nbProjection,
+                                  Is.EqualTo(2));
+                      Assert.That(nbDisposed,
+                                  Is.EqualTo(0));
+                    });
+
+    await (disposeOrder
+             ? pool0
+             : pool1).DisposeAsync()
+                     .ConfigureAwait(false);
+
+    Assert.That(nbDisposed,
+                Is.EqualTo(0));
+
+    await (disposeOrder
+             ? pool1
+             : pool0).DisposeAsync()
+                     .ConfigureAwait(false);
+
+    Assert.That(nbDisposed,
+                Is.EqualTo(1));
+  }
+
+  [Test]
+  public async Task ProjectFailure([Values] bool asyncProject,
+                                   [Values] bool asyncGet,
+                                   [Values] bool earlyFailure)
+  {
+    var nbCreated  = 0;
+    var nbDisposed = 0;
+
+    await using var pool0 = new ObjectPool<IDisposable>(1,
+                                                        () =>
+                                                        {
+                                                          nbCreated++;
+                                                          return new SyncDisposeAction(() => nbDisposed++);
+                                                        },
+                                                        _ => false);
+    await using var pool1 = asyncProject
+                              ? pool0.Project<int>(_ => throw new ApplicationException(""))
+                              : pool0.Project<int>(async (_,
+                                                          _) =>
+                                                   {
+                                                     if (!earlyFailure)
+                                                     {
+                                                       await Task.Delay(1,
+                                                                        CancellationToken.None)
+                                                                 .ConfigureAwait(false);
+                                                     }
+
+                                                     throw new ApplicationException("");
+                                                   });
+
+    Assert.That(() => Get(pool1,
+                          asyncGet,
+                          Project.No),
+                Throws.InstanceOf<ApplicationException>());
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(nbCreated,
+                                  Is.EqualTo(1));
+                      Assert.That(nbDisposed,
+                                  Is.EqualTo(1));
+                    });
+
+    switch ((asyncGet, asyncProject))
+    {
+      case (false, _):
+        Assert.That(() => pool0.Get<int>(_ => throw new ApplicationException("")),
+                    Throws.InstanceOf<ApplicationException>());
+        break;
+      case (true, false):
+        Assert.That(() => pool0.GetAsync((Func<IDisposable, int>)(_ => throw new ApplicationException(""))),
+                    Throws.InstanceOf<ApplicationException>());
+        break;
+      case (true, true):
+        Assert.That(() => pool0.GetAsync((Func<IDisposable, ValueTask<int>>)(async _ =>
+                                                                             {
+                                                                               if (!earlyFailure)
+                                                                               {
+                                                                                 await Task.Delay(1)
+                                                                                           .ConfigureAwait(false);
+                                                                               }
+
+                                                                               throw new ApplicationException("");
+                                                                             })),
+                    Throws.InstanceOf<ApplicationException>());
+        break;
+    }
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(nbCreated,
+                                  Is.EqualTo(2));
+                      Assert.That(nbDisposed,
+                                  Is.EqualTo(2));
+                    });
   }
 
   [Test]
@@ -940,17 +1162,20 @@ public class ObjectPoolTest
     return newPool;
   }
 
-  private static ValueTask<ObjectPool<T>.Guard> Get<T>(ObjectPool<T> pool,
-                                                       bool          async,
-                                                       Project       project)
+  private static ValueTask<ObjectPool<T>.Guard> Get<T>(ObjectPool<T>     pool,
+                                                       bool              async,
+                                                       Project           project,
+                                                       CancellationToken cancellationToken = default)
     => (async, project) switch
        {
          (false, Project.No)    => new ValueTask<ObjectPool<T>.Guard>(pool.Get()),
          (false, Project.Sync)  => new ValueTask<ObjectPool<T>.Guard>(pool.Get(x => x)),
          (false, Project.Async) => new ValueTask<ObjectPool<T>.Guard>(pool.Get(x => x)),
-         (true, Project.No)     => pool.GetAsync(),
-         (true, Project.Sync)   => pool.GetAsync(x => x),
-         (true, Project.Async)  => pool.GetAsync(x => new ValueTask<T>(x)),
+         (true, Project.No)     => pool.GetAsync(cancellationToken),
+         (true, Project.Sync) => pool.GetAsync(x => x,
+                                               cancellationToken),
+         (true, Project.Async) => pool.GetAsync(x => new ValueTask<T>(x),
+                                                cancellationToken),
          _ => throw new ArgumentException("Invalid",
                                           nameof(project)),
        };
