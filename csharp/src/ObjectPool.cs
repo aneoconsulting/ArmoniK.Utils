@@ -434,7 +434,17 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
            {
              var (x, release) = await acquire_(ct)
                                   .ConfigureAwait(false);
-             return (projection(x), release);
+             try
+             {
+               var y = projection(x);
+               return (y, release);
+             }
+             catch
+             {
+               await release(ct)
+                 .ConfigureAwait(false);
+               throw;
+             }
            },
            dispose_);
 
@@ -451,10 +461,19 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
            {
              var (x, release) = await acquire_(ct)
                                   .ConfigureAwait(false);
-             var y = await projection(x,
-                                      ct)
-                       .ConfigureAwait(false);
-             return (y, release);
+             try
+             {
+               var y = await projection(x,
+                                        ct)
+                         .ConfigureAwait(false);
+               return (y, release);
+             }
+             catch
+             {
+               await release(ct)
+                 .ConfigureAwait(false);
+               throw;
+             }
            },
            dispose_);
 
@@ -499,10 +518,19 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   {
     var (x, release) = await acquire_(cancellationToken)
                          .ConfigureAwait(false);
-    var y = projection(x);
-    return new ObjectPool<TOut>.Guard(y,
-                                      release,
-                                      cancellationToken);
+    try
+    {
+      var y = projection(x);
+      return new ObjectPool<TOut>.Guard(y,
+                                        release,
+                                        cancellationToken);
+    }
+    catch
+    {
+      await release(cancellationToken)
+        .ConfigureAwait(false);
+      throw;
+    }
   }
 
   /// <summary>
@@ -524,11 +552,20 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   {
     var (x, release) = await acquire_(cancellationToken)
                          .ConfigureAwait(false);
-    var y = await projection(x)
-              .ConfigureAwait(false);
-    return new ObjectPool<TOut>.Guard(y,
-                                      release,
-                                      cancellationToken);
+    try
+    {
+      var y = await projection(x)
+                .ConfigureAwait(false);
+      return new ObjectPool<TOut>.Guard(y,
+                                        release,
+                                        cancellationToken);
+    }
+    catch
+    {
+      await release(cancellationToken)
+        .ConfigureAwait(false);
+      throw;
+    }
   }
 
   /// <summary>
