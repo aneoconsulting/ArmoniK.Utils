@@ -1,6 +1,6 @@
 ﻿// This file is part of the ArmoniK project
 //
-// Copyright (C) ANEO, 2022-2023.All rights reserved.
+// Copyright (C) ANEO, 2022-2024. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,8 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using NUnit.Framework;
+
+using ArmoniK.Utils.Pool;
 
 namespace ArmoniK.Utils.Tests;
 
@@ -1162,15 +1164,15 @@ public class ObjectPoolTest
     return newPool;
   }
 
-  private static ValueTask<ObjectPool<T>.Guard> Get<T>(ObjectPool<T>     pool,
-                                                       bool              async,
-                                                       Project           project,
-                                                       CancellationToken cancellationToken = default)
+  private static ValueTask<PoolGuard<T>> Get<T>(ObjectPool<T>     pool,
+                                            bool              async,
+                                            Project           project,
+                                            CancellationToken cancellationToken = default)
     => (async, project) switch
        {
-         (false, Project.No)    => new ValueTask<ObjectPool<T>.Guard>(pool.Get()),
-         (false, Project.Sync)  => new ValueTask<ObjectPool<T>.Guard>(pool.Get(x => x)),
-         (false, Project.Async) => new ValueTask<ObjectPool<T>.Guard>(pool.Get(x => x)),
+         (false, Project.No)    => new ValueTask<PoolGuard<T>>(pool.Get()),
+         (false, Project.Sync)  => new ValueTask<PoolGuard<T>>(pool.Get(x => x)),
+         (false, Project.Async) => new ValueTask<PoolGuard<T>>(pool.Get(x => x)),
          (true, Project.No)     => pool.GetAsync(cancellationToken),
          (true, Project.Sync) => pool.GetAsync(x => x,
                                                cancellationToken),
