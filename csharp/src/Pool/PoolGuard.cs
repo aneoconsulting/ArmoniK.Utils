@@ -28,11 +28,11 @@ namespace ArmoniK.Utils.Pool;
 /// </summary>
 public sealed class PoolGuard<T> : IDisposable, IAsyncDisposable
 {
-  private Func<CancellationToken, ValueTask>? release_;
+  private Func<Exception?, CancellationToken, ValueTask>? release_;
 
-  internal PoolGuard(T                                  obj,
-                     Func<CancellationToken, ValueTask> release,
-                     CancellationToken                  releaseCancellationToken)
+  internal PoolGuard(T                                              obj,
+                     Func<Exception?, CancellationToken, ValueTask> release,
+                     CancellationToken                              releaseCancellationToken)
   {
     release_                 = release;
     Value                    = obj;
@@ -51,6 +51,12 @@ public sealed class PoolGuard<T> : IDisposable, IAsyncDisposable
   [PublicAPI]
   public CancellationToken ReleaseCancellationToken { get; set; }
 
+  /// <summary>
+  ///   Exception that occurred while using the guard
+  /// </summary>
+  [PublicAPI]
+  public Exception? Exception { get; set; }
+
   /// <inheritdoc />
   public async ValueTask DisposeAsync()
   {
@@ -58,7 +64,8 @@ public sealed class PoolGuard<T> : IDisposable, IAsyncDisposable
                                        null);
     if (release is not null)
     {
-      await release(ReleaseCancellationToken)
+      await release(Exception,
+                    ReleaseCancellationToken)
         .ConfigureAwait(false);
       GC.SuppressFinalize(this);
     }
