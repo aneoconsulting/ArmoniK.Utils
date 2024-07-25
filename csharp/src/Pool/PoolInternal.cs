@@ -28,39 +28,26 @@ namespace ArmoniK.Utils.Pool;
 /// </summary>
 internal sealed class PoolInternal<T> : IRefDisposable
 {
-  private readonly ConcurrentBag<T>                             bag_;
-  private readonly Func<CancellationToken, ValueTask<T>>        createFunc_;
-  private readonly SemaphoreSlim?                               sem_;
-  private readonly Func<T, CancellationToken, ValueTask<bool>>? validateFunc_;
+  private readonly ConcurrentBag<T> bag_;
+  private readonly PoolPolicy<T>    policy_;
+  private readonly SemaphoreSlim?   sem_;
 
   private int refCount_;
 
   /// <summary>
-  ///   Create a new ObjectPool that can have at most <paramref name="max" /> objects created at the same time.
+  ///   Create a new PoolInternal using the poolPolicy.
   /// </summary>
-  /// <remarks>
-  ///   If <paramref name="max" /> is negative, no limit is enforced.
-  /// </remarks>
-  /// <param name="max">Maximum number of objects</param>
-  /// <param name="createFunc">Function to call to create new objects</param>
-  /// <param name="validateFunc">Function to call to check if an object is still valid and can be safely reused</param>
-  internal PoolInternal(int                                          max,
-                        Func<CancellationToken, ValueTask<T>>        createFunc,
-                        Func<T, CancellationToken, ValueTask<bool>>? validateFunc = null)
+  /// <param name="policy">How the pool is configured</param>
+  internal PoolInternal(PoolPolicy<T> policy)
   {
-    // For now, the object pool is constructed directly with 2 functions, but in the future
-    // we might want to use a `ObjectPoolPolicy` instead, and make this constructor
-    // just build a standard `ObjectPoolPolicy` from the functions.
-
-    sem_ = max switch
+    sem_ = policy.MaxNumberOfInstances switch
            {
-             < 0 => null,
-             0   => throw new ArgumentOutOfRangeException($"{nameof(max)} cannot be zero"),
-             _   => new SemaphoreSlim(max),
+             < 0   => null,
+             0     => throw new ArgumentOutOfRangeException($"{nameof(policy.MaxNumberOfInstances)} cannot be zero"),
+             var n => new SemaphoreSlim(n),
            };
-    bag_          = new ConcurrentBag<T>();
-    createFunc_   = createFunc;
-    validateFunc_ = validateFunc;
+    bag_    = new ConcurrentBag<T>();
+    policy_ = policy;
   }
 
   /// <inheritdoc />
@@ -114,13 +101,13 @@ internal sealed class PoolInternal<T> : IRefDisposable
     }
   }
 
-  public IRefDisposable AcquireRef()
+  IRefDisposable IRefDisposable.AcquireRef()
   {
     Interlocked.Increment(ref refCount_);
     return this;
   }
 
-  public IRefDisposable? ReleaseRef()
+  IRefDisposable? IRefDisposable.ReleaseRef()
     => Interlocked.Decrement(ref refCount_) == 0
          ? this
          : null;
@@ -150,9 +137,9 @@ internal sealed class PoolInternal<T> : IRefDisposable
     {
       while (bag_.TryTake(out var res))
       {
-        var isValid = validateFunc_ is null || await validateFunc_(res,
-                                                                   cancellationToken)
-                        .ConfigureAwait(false);
+        var isValid = await policy_.ValidateAcquireAsync(res,
+                                                         cancellationToken)
+                                   .ConfigureAwait(false);
 
         if (isValid)
         {
@@ -163,8 +150,8 @@ internal sealed class PoolInternal<T> : IRefDisposable
           .ConfigureAwait(false);
       }
 
-      return await createFunc_(cancellationToken)
-               .ConfigureAwait(false);
+      return await policy_.CreateAsync(cancellationToken)
+                          .ConfigureAwait(false);
     }
     catch
     {
@@ -180,16 +167,19 @@ internal sealed class PoolInternal<T> : IRefDisposable
   ///   This method has been marked private to avoid missing to call it.
   /// </remarks>
   /// <param name="obj">Object to release to the pool</param>
+  /// <param name="e">Exception that has been seen during the use of obj</param>
   /// <param name="cancellationToken">Cancellation token used for stopping the release</param>
   /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
   internal async ValueTask Release(T                 obj,
-                                   CancellationToken cancellationToken = default)
+                                   Exception?        e,
+                                   CancellationToken cancellationToken)
   {
     try
     {
-      var isValid = validateFunc_ is null || await validateFunc_(obj,
-                                                                 cancellationToken)
-                      .ConfigureAwait(false);
+      var isValid = await policy_.ValidateReleaseAsync(obj,
+                                                       e,
+                                                       cancellationToken)
+                                 .ConfigureAwait(false);
 
       if (isValid)
       {
@@ -229,17 +219,17 @@ internal sealed class PoolInternal<T> : IRefDisposable
   ///   Asynchronously Dispose a single object, if it is disposable
   /// </summary>
   /// <param name="obj">Object to dispose</param>
-  private static async ValueTask DisposeOneAsync(T obj)
+  private static ValueTask DisposeOneAsync(T obj)
   {
     switch (obj)
     {
       case IAsyncDisposable asyncDisposable:
-        await asyncDisposable.DisposeAsync()
-                             .ConfigureAwait(false);
-        break;
+        return asyncDisposable.DisposeAsync();
       case IDisposable disposable:
         disposable.Dispose();
         break;
     }
+
+    return new ValueTask();
   }
 }

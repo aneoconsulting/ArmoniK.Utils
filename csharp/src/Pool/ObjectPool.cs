@@ -79,11 +79,11 @@ namespace ArmoniK.Utils.Pool;
 /// <typeparam name="T">Type of the objects in the pool</typeparam>
 public class ObjectPool<T> : IDisposable, IAsyncDisposable
 {
-  private readonly Func<CancellationToken, ValueTask<(T, Func<CancellationToken, ValueTask>)>> acquire_;
-  private          IRefDisposable?                                                             dispose_;
+  private readonly Func<CancellationToken, ValueTask<(T, Func<Exception?, CancellationToken, ValueTask>)>> acquire_;
+  private          IRefDisposable?                                                                         dispose_;
 
-  private ObjectPool(Func<CancellationToken, ValueTask<(T, Func<CancellationToken, ValueTask>)>> acquire,
-                     IRefDisposable?                                                             dispose)
+  private ObjectPool(Func<CancellationToken, ValueTask<(T, Func<Exception?, CancellationToken, ValueTask>)>> acquire,
+                     IRefDisposable?                                                                         dispose)
   {
     acquire_ = acquire;
     dispose_ = dispose?.AcquireRef();
@@ -98,10 +98,22 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
            {
              var x = await pool.Acquire(cancellationToken)
                                .ConfigureAwait(false);
-             return (x, ct => pool.Release(x,
-                                           ct));
+             return (x, (e,
+                         ct) => pool.Release(x,
+                                             e,
+                                             ct));
            },
            pool)
+  {
+  }
+
+  /// <summary>
+  ///   Create a new ObjectPool with the given policy.
+  /// </summary>
+  /// <param name="policy">How the pool is configured</param>
+  [PublicAPI]
+  public ObjectPool(PoolPolicy<T> policy)
+    : this(new PoolInternal<T>(policy))
   {
   }
 
@@ -118,9 +130,9 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   public ObjectPool(int                                          max,
                     Func<CancellationToken, ValueTask<T>>        createFunc,
                     Func<T, CancellationToken, ValueTask<bool>>? validateFunc = null)
-    : this(new PoolInternal<T>(max,
-                               createFunc,
-                               validateFunc))
+    : this(new PoolPolicy<T>().SetMaxNumberOfInstances(max)
+                              .SetCreate(createFunc)
+                              .SetValidate(validateFunc))
   {
   }
 
@@ -151,12 +163,9 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   public ObjectPool(int            max,
                     Func<T>        createFunc,
                     Func<T, bool>? validateFunc = null)
-    : this(max,
-           _ => new ValueTask<T>(createFunc()),
-           validateFunc is not null
-             ? (x,
-                _) => new ValueTask<bool>(validateFunc(x))
-             : null)
+    : this(new PoolPolicy<T>().SetMaxNumberOfInstances(max)
+                              .SetCreate(createFunc)
+                              .SetValidate(validateFunc))
   {
   }
 
@@ -206,9 +215,10 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
                var y = projection(x);
                return (y, release);
              }
-             catch
+             catch (Exception e)
              {
-               await release(ct)
+               await release(e,
+                             ct)
                  .ConfigureAwait(false);
                throw;
              }
@@ -235,9 +245,10 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
                          .ConfigureAwait(false);
                return (y, release);
              }
-             catch
+             catch (Exception e)
              {
-               await release(ct)
+               await release(e,
+                             ct)
                  .ConfigureAwait(false);
                throw;
              }
@@ -292,9 +303,10 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
                                  release,
                                  cancellationToken);
     }
-    catch
+    catch (Exception e)
     {
-      await release(cancellationToken)
+      await release(e,
+                    cancellationToken)
         .ConfigureAwait(false);
       throw;
     }
@@ -327,9 +339,10 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
                                  release,
                                  cancellationToken);
     }
-    catch
+    catch (Exception e)
     {
-      await release(cancellationToken)
+      await release(e,
+                    cancellationToken)
         .ConfigureAwait(false);
       throw;
     }
@@ -381,10 +394,17 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   public async ValueTask<TOut> WithInstanceAsync<TOut>(Func<T, TOut>     f,
                                                        CancellationToken cancellationToken = default)
   {
-    await using var guard = await GetAsync(cancellationToken)
-                              .ConfigureAwait(false);
-
-    return f(guard.Value);
+    var guard = await GetAsync(cancellationToken)
+                  .ConfigureAwait(false);
+    try
+    {
+      return f(guard.Value);
+    }
+    catch (Exception e)
+    {
+      guard.Exception = e;
+      throw;
+    }
   }
 
 
@@ -403,8 +423,15 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   {
     await using var guard = await GetAsync(cancellationToken)
                               .ConfigureAwait(false);
-
-    f(guard.Value);
+    try
+    {
+      f(guard.Value);
+    }
+    catch (Exception e)
+    {
+      guard.Exception = e;
+      throw;
+    }
   }
 
   /// <summary>
@@ -423,9 +450,16 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   {
     await using var guard = await GetAsync(cancellationToken)
                               .ConfigureAwait(false);
-
-    return await f(guard.Value)
-             .ConfigureAwait(false);
+    try
+    {
+      return await f(guard.Value)
+               .ConfigureAwait(false);
+    }
+    catch (Exception e)
+    {
+      guard.Exception = e;
+      throw;
+    }
   }
 
   /// <summary>
@@ -443,9 +477,16 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   {
     await using var guard = await GetAsync(cancellationToken)
                               .ConfigureAwait(false);
-
-    await f(guard.Value)
-      .ConfigureAwait(false);
+    try
+    {
+      await f(guard.Value)
+        .ConfigureAwait(false);
+    }
+    catch (Exception e)
+    {
+      guard.Exception = e;
+      throw;
+    }
   }
 
 
@@ -461,7 +502,15 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   public TOut WithInstance<TOut>(Func<T, TOut> f)
   {
     using var guard = Get();
-    return f(guard.Value);
+    try
+    {
+      return f(guard.Value);
+    }
+    catch (Exception e)
+    {
+      guard.Exception = e;
+      throw;
+    }
   }
 
 
@@ -476,6 +525,14 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   public void WithInstance(Action<T> f)
   {
     using var guard = Get();
-    f(guard.Value);
+    try
+    {
+      f(guard.Value);
+    }
+    catch (Exception e)
+    {
+      guard.Exception = e;
+      throw;
+    }
   }
 }
