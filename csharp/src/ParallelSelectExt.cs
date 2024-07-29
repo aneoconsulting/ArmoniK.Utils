@@ -134,20 +134,13 @@ public static class ParallelSelectExt
   /// <typeparam name="TInput">Type of the inputs</typeparam>
   /// <returns>Asynchronous results of func over the inputs</returns>
   [PublicAPI]
-  public static async Task ParallelForEach<TInput>(this IAsyncEnumerable<TInput> enumerable,
-                                                   ParallelTaskOptions           parallelTaskOptions,
-                                                   Func<TInput, Task>            func)
-  {
-    await foreach (var _ in enumerable.ParallelSelect(parallelTaskOptions,
-                                                      async x =>
-                                                      {
-                                                        await func(x)
-                                                          .ConfigureAwait(false);
-                                                        return new ValueTuple();
-                                                      }))
-    {
-    }
-  }
+  public static Task ParallelForEach<TInput>(this IAsyncEnumerable<TInput> enumerable,
+                                             ParallelTaskOptions           parallelTaskOptions,
+                                             Func<TInput, Task>            func)
+    => ParallelSelectInternal.ParallelForEach(enumerable,
+                                              func,
+                                              parallelTaskOptions.ParallelismLimit,
+                                              parallelTaskOptions.CancellationToken);
 
   /// <summary>
   ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.

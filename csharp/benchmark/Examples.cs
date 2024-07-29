@@ -49,6 +49,7 @@ public class Examples
     => BenchmarkSwitcher.FromTypes(new[]
                                    {
                                      typeof(Examples),
+                                     typeof(ParallelSelectBench),
                                    })
                         .Run(args);
 
