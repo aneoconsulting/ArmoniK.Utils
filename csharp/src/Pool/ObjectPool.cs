@@ -394,8 +394,8 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   public async ValueTask<TOut> WithInstanceAsync<TOut>(Func<T, TOut>     f,
                                                        CancellationToken cancellationToken = default)
   {
-    var guard = await GetAsync(cancellationToken)
-                  .ConfigureAwait(false);
+    await using var guard = await GetAsync(cancellationToken)
+                              .ConfigureAwait(false);
     try
     {
       return f(guard.Value);
