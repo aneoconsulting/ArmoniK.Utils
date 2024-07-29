@@ -19,9 +19,9 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 
-using NUnit.Framework;
-
 using ArmoniK.Utils.Pool;
+
+using NUnit.Framework;
 
 namespace ArmoniK.Utils.Tests;
 
@@ -44,6 +44,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(100)]
   public async Task ReuseObjectsFromPoolShouldSucceed([Values] bool      asyncFactory,
                                                       [Values] UseMethod useMethod,
                                                       [Values] bool      asyncUse,
@@ -154,6 +155,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(100)]
   public async Task PoolDisposeShouldSucceed([Values] bool    asyncDisposable,
                                              [Values] bool    asyncDispose,
                                              [Values] bool    asyncFactory,
@@ -195,6 +197,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(100)]
   public async Task ReturnDisposeShouldSucceed([Values] bool    asyncDisposable,
                                                [Values] bool    asyncDispose,
                                                [Values] bool    asyncFactory,
@@ -252,6 +255,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(100)]
   [SuppressMessage("ReSharper",
                    "AccessToModifiedClosure")]
   public async Task DelayedReturnDisposeShouldSucceed([Values] bool    asyncDisposable,
@@ -347,6 +351,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(1000)]
   public async Task MaxLimitShouldSucceed([Values(null,
                                                   -1,
                                                   1,
@@ -488,6 +493,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(1000)]
   public async Task AcquireCancellation([Values] bool    asyncFactory,
                                         [Values] Project project,
                                         [Values] Project projectGet)
@@ -584,6 +590,7 @@ public class ObjectPoolTest
 
 
   [Test]
+  [Timeout(10000)]
   public async Task CreateCancellation([Values] Project project)
   {
     var       nbCreated = 0;
@@ -616,6 +623,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(1000)]
   public async Task CreateFailure([Values] Project project)
   {
     var mustThrow = true;
@@ -647,6 +655,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(100)]
   public async Task ProjectDispose([Values] bool asyncProject,
                                    [Values] bool disposeOrder)
   {
@@ -723,6 +732,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(100)]
   public async Task ProjectFailure([Values] bool asyncProject,
                                    [Values] bool asyncGet,
                                    [Values] bool earlyFailure)
@@ -800,6 +810,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(100)]
   public async Task ReturnFailure([Values] Project project)
   {
     var nbCreated = 0;
@@ -840,6 +851,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(1000)]
   public async Task GuardFinalizer([Values] Project project,
                                    [Values] Project projectGet)
   {
@@ -882,6 +894,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(1000)]
   public async Task PoolFinalizer([Values] Project project)
   {
     var nbCreated  = 0;
@@ -929,6 +942,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(1000)]
   public async Task Finalizer([Values] Project project,
                               [Values] Project projectGet)
   {
@@ -978,6 +992,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(100)]
   public async Task PoolDisposeWithGuardAlive([Values] bool    asyncDispose,
                                               [Values] Project project,
                                               [Values] Project projectGet)
@@ -1012,6 +1027,7 @@ public class ObjectPoolTest
 
 
   [Test]
+  [Timeout(100)]
   public async Task PoolDisposeThrow([Values] bool    asyncDisposable,
                                      [Values] bool    asyncDispose,
                                      [Values] Project project)
@@ -1079,6 +1095,7 @@ public class ObjectPoolTest
   }
 
   [Test]
+  [Timeout(100)]
   public async Task ReturnDisposeThrow([Values] bool    asyncDisposable,
                                        [Values] bool    asyncDispose,
                                        [Values] Project project,
@@ -1165,9 +1182,9 @@ public class ObjectPoolTest
   }
 
   private static ValueTask<PoolGuard<T>> Get<T>(ObjectPool<T>     pool,
-                                            bool              async,
-                                            Project           project,
-                                            CancellationToken cancellationToken = default)
+                                                bool              async,
+                                                Project           project,
+                                                CancellationToken cancellationToken = default)
     => (async, project) switch
        {
          (false, Project.No)    => new ValueTask<PoolGuard<T>>(pool.Get()),
