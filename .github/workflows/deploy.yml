@@ -41,6 +41,10 @@ jobs:
         ref: ${{ github.ref }}
         fetch-depth: 0
         submodules: true
+    - name: Install .NET Core
+      uses: actions/setup-dotnet@4d6c8fcf3c8f7a60068d26b594648e99df24cee3 # v4
+      with:
+        dotnet-version: 9.x
 
     - name: Build the package
       working-directory: csharp
@@ -74,6 +78,8 @@ jobs:
             framework: "net7.0"
           - version: "8.0"
             framework: "net8.0"
+          - version: "9.0"
+            framework: "net9.0"
         platform:
           - os: ubuntu-latest
             runtime: linux-x64
@@ -102,7 +108,9 @@ jobs:
       uses: actions/setup-dotnet@4d6c8fcf3c8f7a60068d26b594648e99df24cee3 # v4
       if: ${{ matrix.dotnet.version }} != ""
       with:
-        dotnet-version: ${{ matrix.dotnet.version }}
+        dotnet-version: |
+          ${{ matrix.dotnet.version }}
+          9.x
 
     - name: Run tests
       working-directory: csharp
@@ -110,7 +118,7 @@ jobs:
         dotnet test --runtime ${{ matrix.platform.runtime }} -f ${{ matrix.dotnet.framework }} --logger "trx;LogFileName=test-results.trx"
 
     - name: Test Report
-      uses: dorny/test-reporter@v1
+      uses: dorny/test-reporter@6e6a65b7a0bd2c9197df7d0ae36ac5cee784230c #v2
       if: always()
       with:
         name: IntegrationTests ${{ matrix.platform.runtime }} ${{ matrix.dotnet.framework }}
