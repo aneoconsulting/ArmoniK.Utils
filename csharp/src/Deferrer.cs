@@ -81,27 +81,27 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
     => deferred_ = asyncDisposable;
 
   /// <inheritdoc />
-  public async ValueTask DisposeAsync()
+  public ValueTask DisposeAsync()
   {
     // Beware of race conditions:
     // https://learn.microsoft.com/en-us/dotnet/standard/security/security-and-race-conditions#race-conditions-in-the-dispose-method
     var deferred = Interlocked.Exchange(ref deferred_,
                                         null);
 
+    var task = new ValueTask();
+
     switch (deferred)
     {
       // Check asynchronous first
       case Func<ValueTask> asyncF:
-        await asyncF()
-          .ConfigureAwait(false);
+        task = asyncF();
         break;
       case Action f:
         f();
         break;
       // As Func and Action are sealed, it is not possible to be both Action and Disposable
       case IAsyncDisposable asyncDisposable:
-        await asyncDisposable.DisposeAsync()
-                             .ConfigureAwait(false);
+        task = asyncDisposable.DisposeAsync();
         break;
       case IDisposable disposable:
         disposable.Dispose();
@@ -109,6 +109,8 @@ public sealed class Deferrer : IDisposable, IAsyncDisposable
     }
 
     GC.SuppressFinalize(this);
+
+    return task;
   }
 
   /// <inheritdoc />
