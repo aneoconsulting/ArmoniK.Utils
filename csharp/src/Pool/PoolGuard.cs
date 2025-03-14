@@ -58,17 +58,18 @@ public sealed class PoolGuard<T> : IDisposable, IAsyncDisposable
   public Exception? Exception { get; set; }
 
   /// <inheritdoc />
-  public async ValueTask DisposeAsync()
+  public ValueTask DisposeAsync()
   {
     var release = Interlocked.Exchange(ref release_,
                                        null);
-    if (release is not null)
+    if (release is null)
     {
-      await release(Exception,
-                    ReleaseCancellationToken)
-        .ConfigureAwait(false);
-      GC.SuppressFinalize(this);
+      return new ValueTask();
     }
+
+    GC.SuppressFinalize(this);
+    return release(Exception,
+                   ReleaseCancellationToken);
   }
 
   /// <inheritdoc />
