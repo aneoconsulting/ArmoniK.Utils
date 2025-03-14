@@ -21,7 +21,6 @@ using ArmoniK.Utils.Diagnostics;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Testing;
 using Microsoft.CodeAnalysis.Testing;
-using Microsoft.CodeAnalysis.Testing.Verifiers;
 
 using NUnit.Framework;
 #if NET47 || NET471 || NET472
@@ -178,7 +177,7 @@ public static void Main()
     var source      = $"{sourceHeader}{sourceBlock}{sourceFooter}";
     var sourceFixed = $"{sourceHeader}{sourceBlockFixed}{sourceFooter}";
 
-    var codeFixTest = new CSharpCodeFixTest<CollectionAnalyzer, CollectionCodeFixProvider, NUnitVerifier>
+    var codeFixTest = new CSharpCodeFixTest<CollectionAnalyzer, CollectionCodeFixProvider, DefaultVerifier>
                       {
                         TestState =
                         {

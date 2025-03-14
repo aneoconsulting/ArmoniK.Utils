@@ -21,7 +21,6 @@ using ArmoniK.Utils.Diagnostics;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Testing;
 using Microsoft.CodeAnalysis.Testing;
-using Microsoft.CodeAnalysis.Testing.Verifiers;
 
 using NUnit.Framework;
 #if NET47 || NET471 || NET472
@@ -165,7 +164,7 @@ public static void Main()
 }}
 ";
 
-    var analyzerTest = new CSharpAnalyzerTest<CollectionAnalyzer, NUnitVerifier>
+    var analyzerTest = new CSharpAnalyzerTest<CollectionAnalyzer, DefaultVerifier>
                        {
                          TestState =
                          {
