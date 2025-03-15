@@ -1,6 +1,6 @@
 // This file is part of the ArmoniK project
 //
-// Copyright (C) ANEO, 2022-2024. All rights reserved.
+// Copyright (C) ANEO, 2022-2025. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
@@ -24,21 +24,46 @@ using System.Threading.Tasks;
 namespace ArmoniK.Utils.Pool;
 
 /// <summary>
-///   Class to manage a plain pool of objects of type <typeparamref name="T" />
+///   Pool of objects
 /// </summary>
-internal sealed class PoolInternal<T> : IRefDisposable
+/// <typeparam name="T">Type of the objects stored within the pool</typeparam>
+public interface IPoolRaw<T>
+{
+  /// <summary>
+  ///   Acquire a new object from the pool.
+  /// </summary>
+  /// <param name="cancellationToken">Cancellation token used for stopping the acquire</param>
+  /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
+  /// <returns>An object that has been acquired</returns>
+  public ValueTask<T> AcquireAsync(CancellationToken cancellationToken);
+
+  /// <summary>
+  ///   Release an object to the pool.
+  /// </summary>
+  /// <param name="obj">Object to release to the pool</param>
+  /// <param name="exception">Exception that has been seen during the use of obj</param>
+  /// <param name="cancellationToken">Cancellation token used for stopping the release</param>
+  /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
+  public ValueTask ReleaseAsync(T                 obj,
+                                Exception?        exception,
+                                CancellationToken cancellationToken);
+}
+
+/// <summary>
+///   Standard implementation of a pool of objects
+/// </summary>
+/// <typeparam name="T">Type of the objects stored within the pool</typeparam>
+public class PoolRaw<T> : IPoolRaw<T>, IDisposable, IAsyncDisposable
 {
   private readonly ConcurrentBag<T> bag_;
   private readonly PoolPolicy<T>    policy_;
   private readonly SemaphoreSlim?   sem_;
 
-  private int refCount_;
-
   /// <summary>
-  ///   Create a new PoolInternal using the poolPolicy.
+  ///   Create a new RefCounted using the poolPolicy.
   /// </summary>
   /// <param name="policy">How the pool is configured</param>
-  internal PoolInternal(PoolPolicy<T> policy)
+  public PoolRaw(PoolPolicy<T> policy)
   {
     sem_ = policy.MaxNumberOfInstances switch
            {
@@ -101,17 +126,6 @@ internal sealed class PoolInternal<T> : IRefDisposable
     }
   }
 
-  IRefDisposable IRefDisposable.AcquireRef()
-  {
-    Interlocked.Increment(ref refCount_);
-    return this;
-  }
-
-  IRefDisposable? IRefDisposable.ReleaseRef()
-    => Interlocked.Decrement(ref refCount_) == 0
-         ? this
-         : null;
-
   // An object pool has only references to managed objects.
   // So finalizer is not required as it will be called directly by the underlying resources
 
@@ -119,13 +133,10 @@ internal sealed class PoolInternal<T> : IRefDisposable
   ///   Acquire a new object from the pool, creating it if there is no object in the pool.
   ///   If the limit of object has been reached, this method will wait for an object to be released.
   /// </summary>
-  /// <remarks>
-  ///   This method has been marked private to avoid missing the call to <see cref="Release" />
-  /// </remarks>
   /// <param name="cancellationToken">Cancellation token used for stopping the acquire</param>
   /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
   /// <returns>An object that has been acquired</returns>
-  internal async ValueTask<T> Acquire(CancellationToken cancellationToken = default)
+  public async ValueTask<T> AcquireAsync(CancellationToken cancellationToken = default)
   {
     if (sem_ is not null)
     {
@@ -163,21 +174,18 @@ internal sealed class PoolInternal<T> : IRefDisposable
   /// <summary>
   ///   Release an object to the pool. If the object is still valid, another consumer can reuse the object.
   /// </summary>
-  /// <remarks>
-  ///   This method has been marked private to avoid missing to call it.
-  /// </remarks>
   /// <param name="obj">Object to release to the pool</param>
-  /// <param name="e">Exception that has been seen during the use of obj</param>
+  /// <param name="exception">Exception that has been seen during the use of obj</param>
   /// <param name="cancellationToken">Cancellation token used for stopping the release</param>
   /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
-  internal async ValueTask Release(T                 obj,
-                                   Exception?        e,
-                                   CancellationToken cancellationToken)
+  public async ValueTask ReleaseAsync(T                 obj,
+                                      Exception?        exception,
+                                      CancellationToken cancellationToken)
   {
     try
     {
       var isValid = await policy_.ValidateReleaseAsync(obj,
-                                                       e,
+                                                       exception,
                                                        cancellationToken)
                                  .ConfigureAwait(false);
 
