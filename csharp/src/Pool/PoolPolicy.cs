@@ -1,6 +1,6 @@
 // This file is part of the ArmoniK project
 //
-// Copyright (C) ANEO, 2022-2024. All rights reserved.
+// Copyright (C) ANEO, 2022-2025. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
@@ -22,6 +22,10 @@ using JetBrains.Annotations;
 
 namespace ArmoniK.Utils.Pool;
 
+/// <summary>
+///   Describes the behavior of the standard object pool
+/// </summary>
+/// <typeparam name="T">Type of the objects stored within the pool</typeparam>
 public sealed class PoolPolicy<T>
 {
   private object? create_;

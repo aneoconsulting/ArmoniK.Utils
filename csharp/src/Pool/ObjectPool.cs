@@ -1,6 +1,6 @@
 // This file is part of the ArmoniK project
 //
-// Copyright (C) ANEO, 2022-2024. All rights reserved.
+// Copyright (C) ANEO, 2022-2025. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
@@ -80,31 +80,13 @@ namespace ArmoniK.Utils.Pool;
 public class ObjectPool<T> : IDisposable, IAsyncDisposable
 {
   private readonly Func<CancellationToken, ValueTask<(T, Func<Exception?, CancellationToken, ValueTask>)>> acquire_;
-  private          IRefDisposable?                                                                         dispose_;
+  private          RefCounted?                                                                             dispose_;
 
   private ObjectPool(Func<CancellationToken, ValueTask<(T, Func<Exception?, CancellationToken, ValueTask>)>> acquire,
-                     IRefDisposable?                                                                         dispose)
+                     RefCounted?                                                                             dispose)
   {
     acquire_ = acquire;
     dispose_ = dispose?.AcquireRef();
-  }
-
-  /// <summary>
-  ///   Construct a new object pool from an internal pool
-  /// </summary>
-  /// <param name="pool">The internal pool to wrap</param>
-  private ObjectPool(PoolInternal<T> pool)
-    : this(async cancellationToken =>
-           {
-             var x = await pool.Acquire(cancellationToken)
-                               .ConfigureAwait(false);
-             return (x, (e,
-                         ct) => pool.Release(x,
-                                             e,
-                                             ct));
-           },
-           pool)
-  {
   }
 
   /// <summary>
@@ -113,7 +95,26 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
   /// <param name="policy">How the pool is configured</param>
   [PublicAPI]
   public ObjectPool(PoolPolicy<T> policy)
-    : this(new PoolInternal<T>(policy))
+    : this(new PoolRaw<T>(policy))
+  {
+  }
+
+  /// <summary>
+  ///   Create a new ObjectPool from a raw pool.
+  /// </summary>
+  /// <param name="pool">Raw pool</param>
+  [PublicAPI]
+  public ObjectPool(IPoolRaw<T> pool)
+    : this(async cancellationToken =>
+           {
+             var x = await pool.AcquireAsync(cancellationToken)
+                               .ConfigureAwait(false);
+             return (x, (e,
+                         ct) => pool.ReleaseAsync(x,
+                                                  e,
+                                                  ct));
+           },
+           new RefCounted(pool))
   {
   }
 
