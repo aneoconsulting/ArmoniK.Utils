@@ -28,6 +28,14 @@ namespace ArmoniK.Utils;
 public static class ValueTaskExt
 {
   /// <summary>
+  ///   Gets a task that has already completed successfully.
+  /// </summary>
+  /// <returns>The successfully completed task.</returns>
+  [PublicAPI]
+  public static ValueTask CompletedTask
+    => new();
+
+  /// <summary>
   ///   Creates a <see cref="ValueTask" /> that has completed with the specified exception.
   /// </summary>
   /// <param name="exception">The exception with which to complete the task.</param>
@@ -74,6 +82,16 @@ public static class ValueTaskExt
   [PublicAPI]
   public static ValueTask<TResult> FromCanceled<TResult>(CancellationToken cancellationToken)
     => new(Task.FromCanceled<TResult>(cancellationToken));
+
+  /// <summary>
+  ///   Creates a <see cref="ValueTask{TResult}" /> that's completed successfully with the specified result.
+  /// </summary>
+  /// <param name="result">The result to store into the completed task.</param>
+  /// <typeparam name="TResult">The type of the result returned by the task.</typeparam>
+  /// <returns>The successfully completed task.</returns>
+  [PublicAPI]
+  public static ValueTask<TResult> FromResult<TResult>(TResult result)
+    => new(result);
 
   /// <summary>
   ///   Creates a continuation that executes synchronously when the target <see cref="ValueTask" /> completes successfully.

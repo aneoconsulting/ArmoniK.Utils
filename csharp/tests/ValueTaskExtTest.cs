@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
@@ -25,24 +26,393 @@ namespace ArmoniK.Utils.Tests;
 
 public class ValueTaskExtTest
 {
-  [Test]
-  public void Foo()
+  public enum CompletedTaskStatus
   {
-    var cts = new CancellationTokenSource();
-    cts.Cancel();
-    var task = Bar(cts.Token);
+    RanToCompletion,
+    Failed,
+    Canceled,
+  }
 
-    Assert.That(task.IsCanceled,
+  private readonly CancellationToken canceled_ = new(true);
+
+  [Test]
+  public void CompletedTask()
+  {
+    var task = ValueTaskExt.CompletedTask;
+
+    Assert.That(task.IsCompletedSuccessfully,
                 Is.True);
-
-    static async ValueTask Bar(CancellationToken cancellation)
-    {
-      throw new OperationCanceledException(cancellation);
-      await Task.Yield();
-    }
   }
 
   [Test]
+  public void FromResult()
+  {
+    var task = ValueTaskExt.FromResult(1);
+
+    Assert.That(task.IsCompletedSuccessfully,
+                Is.True);
+    Assert.That(() => task,
+                Is.EqualTo(1));
+  }
+
+  [Test]
+  public void FromExceptionV()
+  {
+    var task = ValueTaskExt.FromException(new ApplicationException());
+    Assert.That(task.IsFaulted,
+                Is.True);
+    Assert.That(() => task,
+                Throws.InstanceOf<ApplicationException>());
+  }
+
+  [Test]
+  public void FromExceptionT()
+  {
+    var task = ValueTaskExt.FromException<int>(new ApplicationException());
+    Assert.That(task.IsFaulted,
+                Is.True);
+    Assert.That(() => task,
+                Throws.InstanceOf<ApplicationException>());
+  }
+
+  [Test]
+  public void FromCanceledV()
+  {
+    // ReSharper disable once SuggestVarOrType_SimpleTypes
+    ValueTask task = ValueTaskExt.FromCanceled(canceled_);
+    Assert.That(task.IsCanceled,
+                Is.True);
+    Assert.That(() => task,
+                Throws.InstanceOf<OperationCanceledException>()
+                      .And.Property(nameof(OperationCanceledException.CancellationToken))
+                      .EqualTo(canceled_));
+  }
+
+  [Test]
+  public void FromCanceledT()
+  {
+    // ReSharper disable once SuggestVarOrType_Elsewhere
+    ValueTask<int> task = ValueTaskExt.FromCanceled<int>(canceled_);
+    Assert.That(task.IsCanceled,
+                Is.True);
+    Assert.That(() => task,
+                Throws.InstanceOf<OperationCanceledException>()
+                      .And.Property(nameof(OperationCanceledException.CancellationToken))
+                      .EqualTo(canceled_));
+  }
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
+  [SuppressMessage("ReSharper",
+                   "SuggestVarOrType_SimpleTypes")]
+  [SuppressMessage("ReSharper",
+                   "InconsistentNaming")]
+  public void AndThenVV([Values] bool                asyncTask,
+                        [Values] bool?               asyncContinuation,
+                        [Values] CompletedTaskStatus taskStatus,
+                        [Values] CompletedTaskStatus continuationStatus)
+  {
+    var tcs       = new TaskCompletionSource<ValueTuple>();
+    var continued = false;
+
+    ValueTask sourceTask = ValueTaskFactory(asyncTask
+                                              ? tcs.Task
+                                              : null,
+                                            taskStatus);
+    ValueTask task = asyncContinuation is null
+                       ? sourceTask.AndThen(() => ValueTaskFactory(null,
+                                                                   continuationStatus,
+                                                                   () => continued = true)
+                                              .WaitSync())
+                       : sourceTask.AndThen(() => ValueTaskFactory(asyncContinuation.Value
+                                                                     ? tcs.Task
+                                                                     : null,
+                                                                   continuationStatus,
+                                                                   () => continued = true));
+
+    var isAsync = asyncTask || (taskStatus is CompletedTaskStatus.RanToCompletion && (asyncContinuation ?? false));
+    var status = taskStatus is CompletedTaskStatus.RanToCompletion
+                   ? continuationStatus
+                   : taskStatus;
+
+    Assert.That(task.IsCompleted,
+                Is.EqualTo(!isAsync));
+
+    tcs.SetResult(new ValueTuple());
+
+    switch (status)
+    {
+      case CompletedTaskStatus.RanToCompletion:
+        Assert.That(() => task,
+                    Throws.Nothing);
+        break;
+      case CompletedTaskStatus.Failed:
+        Assert.That(() => task,
+                    Throws.InstanceOf<ApplicationException>());
+        break;
+      case CompletedTaskStatus.Canceled:
+        Assert.That(() => task,
+                    Throws.InstanceOf<OperationCanceledException>()
+                          .And.Property(nameof(OperationCanceledException.CancellationToken))
+                          .EqualTo(canceled_));
+        break;
+    }
+
+    Assert.That(continued,
+                Is.EqualTo(taskStatus == CompletedTaskStatus.RanToCompletion));
+  }
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
+  [SuppressMessage("ReSharper",
+                   "SuggestVarOrType_SimpleTypes")]
+  [SuppressMessage("ReSharper",
+                   "SuggestVarOrType_Elsewhere")]
+  [SuppressMessage("ReSharper",
+                   "InconsistentNaming")]
+  public void AndThenVT([Values] bool                asyncTask,
+                        [Values] bool?               asyncContinuation,
+                        [Values] CompletedTaskStatus taskStatus,
+                        [Values] CompletedTaskStatus continuationStatus)
+  {
+    var tcs       = new TaskCompletionSource<ValueTuple>();
+    var continued = false;
+
+    ValueTask sourceTask = ValueTaskFactory(asyncTask
+                                              ? tcs.Task
+                                              : null,
+                                            taskStatus);
+    ValueTask<int> task = asyncContinuation is null
+                            ? sourceTask.AndThen(() => ValueTaskFactory(null,
+                                                                        continuationStatus,
+                                                                        1,
+                                                                        () => continued = true)
+                                                   .WaitSync())
+                            : sourceTask.AndThen(() => ValueTaskFactory(asyncContinuation.Value
+                                                                          ? tcs.Task
+                                                                          : null,
+                                                                        continuationStatus,
+                                                                        1,
+                                                                        () => continued = true));
+
+    var isAsync = asyncTask || (taskStatus is CompletedTaskStatus.RanToCompletion && (asyncContinuation ?? false));
+    var status = taskStatus is CompletedTaskStatus.RanToCompletion
+                   ? continuationStatus
+                   : taskStatus;
+
+    Assert.That(task.IsCompleted,
+                Is.EqualTo(!isAsync));
+
+    tcs.SetResult(new ValueTuple());
+
+    switch (status)
+    {
+      case CompletedTaskStatus.RanToCompletion:
+        Assert.That(() => task,
+                    Is.EqualTo(1));
+        break;
+      case CompletedTaskStatus.Failed:
+        Assert.That(() => task,
+                    Throws.InstanceOf<ApplicationException>());
+        break;
+      case CompletedTaskStatus.Canceled:
+        Assert.That(() => task,
+                    Throws.InstanceOf<OperationCanceledException>()
+                          .And.Property(nameof(OperationCanceledException.CancellationToken))
+                          .EqualTo(canceled_));
+        break;
+    }
+
+    Assert.That(continued,
+                Is.EqualTo(taskStatus == CompletedTaskStatus.RanToCompletion));
+  }
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
+  [SuppressMessage("ReSharper",
+                   "SuggestVarOrType_SimpleTypes")]
+  [SuppressMessage("ReSharper",
+                   "SuggestVarOrType_Elsewhere")]
+  [SuppressMessage("ReSharper",
+                   "InconsistentNaming")]
+  public void AndThenTV([Values] bool                asyncTask,
+                        [Values] bool?               asyncContinuation,
+                        [Values] CompletedTaskStatus taskStatus,
+                        [Values] CompletedTaskStatus continuationStatus)
+  {
+    var tcs       = new TaskCompletionSource<ValueTuple>();
+    var continued = false;
+
+    ValueTask<int> sourceTask = ValueTaskFactory(asyncTask
+                                                   ? tcs.Task
+                                                   : null,
+                                                 taskStatus,
+                                                 1);
+    ValueTask task = asyncContinuation is null
+                       ? sourceTask.AndThen(_ => ValueTaskFactory(null,
+                                                                  continuationStatus,
+                                                                  () => continued = true)
+                                              .WaitSync())
+                       : sourceTask.AndThen(_ => ValueTaskFactory(asyncContinuation.Value
+                                                                    ? tcs.Task
+                                                                    : null,
+                                                                  continuationStatus,
+                                                                  () => continued = true));
+
+    var isAsync = asyncTask || (taskStatus is CompletedTaskStatus.RanToCompletion && (asyncContinuation ?? false));
+    var status = taskStatus is CompletedTaskStatus.RanToCompletion
+                   ? continuationStatus
+                   : taskStatus;
+
+    Assert.That(task.IsCompleted,
+                Is.EqualTo(!isAsync));
+
+    tcs.SetResult(new ValueTuple());
+
+    switch (status)
+    {
+      case CompletedTaskStatus.RanToCompletion:
+        Assert.That(() => task,
+                    Throws.Nothing);
+        break;
+      case CompletedTaskStatus.Failed:
+        Assert.That(() => task,
+                    Throws.InstanceOf<ApplicationException>());
+        break;
+      case CompletedTaskStatus.Canceled:
+        Assert.That(() => task,
+                    Throws.InstanceOf<OperationCanceledException>()
+                          .And.Property(nameof(OperationCanceledException.CancellationToken))
+                          .EqualTo(canceled_));
+        break;
+    }
+
+    Assert.That(continued,
+                Is.EqualTo(taskStatus == CompletedTaskStatus.RanToCompletion));
+  }
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
+  [SuppressMessage("ReSharper",
+                   "SuggestVarOrType_Elsewhere")]
+  [SuppressMessage("ReSharper",
+                   "InconsistentNaming")]
+  public void AndThenTT([Values] bool                asyncTask,
+                        [Values] bool?               asyncContinuation,
+                        [Values] CompletedTaskStatus taskStatus,
+                        [Values] CompletedTaskStatus continuationStatus)
+  {
+    var tcs       = new TaskCompletionSource<ValueTuple>();
+    var continued = false;
+
+    ValueTask<int> sourceTask = ValueTaskFactory(asyncTask
+                                                   ? tcs.Task
+                                                   : null,
+                                                 taskStatus,
+                                                 1);
+    ValueTask<int> task = asyncContinuation is null
+                            ? sourceTask.AndThen(x => ValueTaskFactory(null,
+                                                                       continuationStatus,
+                                                                       x,
+                                                                       () => continued = true)
+                                                   .WaitSync())
+                            : sourceTask.AndThen(x => ValueTaskFactory(asyncContinuation.Value
+                                                                         ? tcs.Task
+                                                                         : null,
+                                                                       continuationStatus,
+                                                                       x,
+                                                                       () => continued = true));
+
+    var isAsync = asyncTask || (taskStatus is CompletedTaskStatus.RanToCompletion && (asyncContinuation ?? false));
+    var status = taskStatus is CompletedTaskStatus.RanToCompletion
+                   ? continuationStatus
+                   : taskStatus;
+
+    Assert.That(task.IsCompleted,
+                Is.EqualTo(!isAsync));
+
+    tcs.SetResult(new ValueTuple());
+
+    switch (status)
+    {
+      case CompletedTaskStatus.RanToCompletion:
+        Assert.That(() => task,
+                    Throws.Nothing);
+        break;
+      case CompletedTaskStatus.Failed:
+        Assert.That(() => task,
+                    Throws.InstanceOf<ApplicationException>());
+        break;
+      case CompletedTaskStatus.Canceled:
+        Assert.That(() => task,
+                    Throws.InstanceOf<OperationCanceledException>()
+                          .And.Property(nameof(OperationCanceledException.CancellationToken))
+                          .EqualTo(canceled_));
+        break;
+    }
+
+    Assert.That(continued,
+                Is.EqualTo(taskStatus == CompletedTaskStatus.RanToCompletion));
+  }
+
+
+  private async ValueTask ValueTaskFactory(Task?               waitFor,
+                                           CompletedTaskStatus status,
+                                           Action?             body = null)
+  {
+    body?.Invoke();
+
+    if (waitFor is not null)
+    {
+      await waitFor;
+    }
+
+    switch (status)
+    {
+      case CompletedTaskStatus.RanToCompletion:
+        break;
+      case CompletedTaskStatus.Failed:
+        throw new ApplicationException();
+      case CompletedTaskStatus.Canceled:
+        canceled_.ThrowIfCancellationRequested();
+        break;
+    }
+  }
+
+  private async ValueTask<T> ValueTaskFactory<T>(Task?               waitFor,
+                                                 CompletedTaskStatus status,
+                                                 T                   value,
+                                                 Action?             body = null)
+  {
+    body?.Invoke();
+
+    if (waitFor is not null)
+    {
+      await waitFor;
+    }
+
+    switch (status)
+    {
+      case CompletedTaskStatus.RanToCompletion:
+        break;
+      case CompletedTaskStatus.Failed:
+        throw new ApplicationException();
+      case CompletedTaskStatus.Canceled:
+        canceled_.ThrowIfCancellationRequested();
+        break;
+    }
+
+    return value;
+  }
+
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
   public void WaitSyncValueTask()
   {
     var task = new ValueTask<int>(new Source<int>(1),
@@ -54,6 +424,8 @@ public class ValueTaskExtTest
   }
 
   [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
   public void WaitSyncValueTaskUntyped()
   {
     var task = new ValueTask(new Source<int>(1),
@@ -63,6 +435,8 @@ public class ValueTaskExtTest
   }
 
   [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
   public void WaitSyncTask()
   {
     var task = new ValueTask<int>(new Source<int>(1),
@@ -74,6 +448,8 @@ public class ValueTaskExtTest
   }
 
   [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
   public void WaitSyncTaskUntyped()
   {
     var task = new ValueTask(new Source<int>(1),
