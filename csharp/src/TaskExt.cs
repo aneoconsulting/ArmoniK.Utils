@@ -14,6 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -28,6 +29,137 @@ namespace ArmoniK.Utils;
 /// </summary>
 public static class TaskExt
 {
+  /// <summary>
+  ///   Creates a continuation that executes asynchronously when the target <see cref="Task" /> completes successfully.
+  /// </summary>
+  /// <param name="task">The target task.</param>
+  /// <param name="continuation">A function to run when the <paramref name="task" /> completes.</param>
+  /// <returns>The continuation task.</returns>
+  [PublicAPI]
+  public static async Task AndThen(this Task task,
+                                   Action    continuation)
+  {
+    await task.ConfigureAwait(false);
+    continuation();
+  }
+
+  /// <summary>
+  ///   Creates a continuation that executes asynchronously when the target <see cref="Task" /> completes successfully and
+  ///   returns a value.
+  /// </summary>
+  /// <param name="task">The target task.</param>
+  /// <param name="continuation">A function to run when the <paramref name="task" /> completes.</param>
+  /// <typeparam name="TOut">The type of the result produced by the continuation.</typeparam>
+  /// <returns>The continuation task.</returns>
+  [PublicAPI]
+  public static async Task<TOut> AndThen<TOut>(this Task  task,
+                                               Func<TOut> continuation)
+  {
+    await task.ConfigureAwait(false);
+    return continuation();
+  }
+
+  /// <summary>
+  ///   Creates a continuation that executes asynchronously when the target <see cref="Task" /> completes successfully.
+  /// </summary>
+  /// <param name="task">The target task.</param>
+  /// <param name="continuation">A function to run when the <paramref name="task" /> completes.</param>
+  /// <returns>The continuation task.</returns>
+  [PublicAPI]
+  public static async Task AndThen(this Task  task,
+                                   Func<Task> continuation)
+  {
+    await task.ConfigureAwait(false);
+    await continuation()
+      .ConfigureAwait(false);
+  }
+
+  /// <summary>
+  ///   Creates a continuation that executes asynchronously when the target <see cref="Task" /> completes successfully and
+  ///   returns a value.
+  /// </summary>
+  /// <param name="task">The target task.</param>
+  /// <param name="continuation">A function to run when the <paramref name="task" /> completes.</param>
+  /// <typeparam name="TOut">The type of the result produced by the continuation.</typeparam>
+  /// <returns>The continuation task.</returns>
+  [PublicAPI]
+  public static async Task<TOut> AndThen<TOut>(this Task        task,
+                                               Func<Task<TOut>> continuation)
+  {
+    await task.ConfigureAwait(false);
+    return await continuation()
+             .ConfigureAwait(false);
+  }
+
+  /// <summary>
+  ///   Creates a continuation that executes asynchronously when the target <see cref="Task{TIn}" /> completes successfully.
+  /// </summary>
+  /// <param name="task">The target task.</param>
+  /// <param name="continuation">
+  ///   A function to run when the <paramref name="task" /> completes, whose input is the result of
+  ///   the <paramref name="task" />.
+  /// </param>
+  /// <typeparam name="TIn">The type of the result of the target task.</typeparam>
+  /// <returns>The continuation task.</returns>
+  [PublicAPI]
+  public static async Task AndThen<TIn>(this Task<TIn> task,
+                                        Action<TIn>    continuation)
+    => continuation(await task.ConfigureAwait(false));
+
+  /// <summary>
+  ///   Creates a continuation that executes asynchronously when the target <see cref="Task{TIn}" /> completes successfully
+  ///   and returns a value.
+  /// </summary>
+  /// <param name="task">The target task.</param>
+  /// <param name="continuation">
+  ///   A function to run when the <paramref name="task" /> completes, whose input is the result of
+  ///   the <paramref name="task" />.
+  /// </param>
+  /// <typeparam name="TIn">The type of the result of the target task.</typeparam>
+  /// <typeparam name="TOut">The type of the result produced by the continuation.</typeparam>
+  /// <returns>The continuation task.</returns>
+  [PublicAPI]
+  public static async Task<TOut> AndThen<TIn, TOut>(this Task<TIn>  task,
+                                                    Func<TIn, TOut> continuation)
+    => continuation(await task.ConfigureAwait(false));
+
+
+  /// <summary>
+  ///   Creates a continuation that executes asynchronously when the target <see cref="Task{TIn}" /> completes successfully.
+  /// </summary>
+  /// <param name="task">The target task.</param>
+  /// <param name="continuation">
+  ///   A function to run when the <paramref name="task" /> completes, whose input is the result of
+  ///   the <paramref name="task" />.
+  /// </param>
+  /// <typeparam name="TIn">The type of the result of the target task.</typeparam>
+  /// <returns>The continuation task.</returns>
+  [PublicAPI]
+  public static async Task AndThen<TIn>(this Task<TIn>  task,
+                                        Func<TIn, Task> continuation)
+    => await continuation(await task.ConfigureAwait(false))
+         .ConfigureAwait(false);
+
+
+  /// <summary>
+  ///   Creates a continuation that executes asynchronously when the target <see cref="Task{TIn}" /> completes successfully
+  ///   and returns a value.
+  /// </summary>
+  /// <param name="task">The target task.</param>
+  /// <param name="continuation">
+  ///   A function to run when the <paramref name="task" /> completes, whose input is the result of
+  ///   the <paramref name="task" />.
+  /// </param>
+  /// <typeparam name="TIn">The type of the result of the target task.</typeparam>
+  /// <typeparam name="TOut">The type of the result produced by the continuation.</typeparam>
+  /// <returns>The continuation task.</returns>
+  [PublicAPI]
+  public static async Task<TOut> AndThen<TIn, TOut>(this Task<TIn>        task,
+                                                    Func<TIn, Task<TOut>> continuation)
+    => await continuation(await task.ConfigureAwait(false))
+         .ConfigureAwait(false);
+
+
   /// <summary>
   ///   Creates a task that will complete when all of the supplied tasks have completed.
   /// </summary>
@@ -195,43 +327,47 @@ public static class TaskExt
            .GetResult();
 
   /// <summary>
-  ///   Synchronously wait a <see cref="ValueTask" />.
+  ///   Check if the <paramref name="task" /> is completed.
+  ///   If the task is canceled or faulted, it will throw the according exception.
   /// </summary>
-  /// <param name="task">Task to be awaited</param>
+  /// <param name="task"><see cref="Task" /> to check.</param>
+  /// <returns>Whether the task has completed.</returns>
   [PublicAPI]
-  public static void WaitSync(this ValueTask task)
+  public static bool TryGetSync(this Task task)
+  {
+    if (task.IsCompleted)
+    {
+      task.WaitSync();
+      return true;
+    }
+
+    return false;
+  }
+
+  /// <summary>
+  ///   Check if the <paramref name="task" /> is completed and get its result.
+  ///   If the task is canceled or faulted, it will throw the according exception.
+  /// </summary>
+  /// <param name="task"><see cref="Task{TOut}" /> to check.</param>
+  /// <param name="result">The result of the <paramref name="task" />.</param>
+  /// <typeparam name="TOut">Type of the result of the task.</typeparam>
+  /// <returns>Whether the task has completed.</returns>
+  [PublicAPI]
+  [ContractAnnotation("=> false, result: null; => true, result:notnull")]
+  public static bool TryGetSync<TOut>(this Task<TOut> task,
+                                      out  TOut       result)
   {
     if (task.IsCompleted)
     {
       // Ensure exception is propagated without wrapping it into an AggregateException like .Result or .Wait() would.
-      task.GetAwaiter()
-          .GetResult();
+      result = task.WaitSync();
+      return true;
     }
-    else
-    {
-      // Not already completed `ValueTask` cannot be safely synchronously waited in a direct way.
-      // Converting to actual `Task` enable to wait for it safely.
-      task.AsTask()
-          .GetAwaiter()
-          .GetResult();
-    }
-  }
 
-  /// <summary>
-  ///   Synchronously wait a <see cref="ValueTask{T}" />.
-  /// </summary>
-  /// <param name="task">Task to be awaited</param>
-  /// <typeparam name="TResult">Type of the task result</typeparam>
-  /// <returns>Result of the task</returns>
-  [PublicAPI]
-  public static TResult WaitSync<TResult>(this ValueTask<TResult> task)
-    => task.IsCompleted
-         // Ensure exception is propagated without wrapping it into an AggregateException like .Result or .Wait() would.
-         ? task.GetAwaiter()
-               .GetResult()
-         // Not already completed `ValueTask` cannot be safely synchronously waited in a direct way.
-         // Converting to actual `Task` enable to wait for it safely.
-         : task.AsTask()
-               .GetAwaiter()
-               .GetResult();
+#pragma warning disable CS8601 // Possible null reference assignment.
+    result = default;
+#pragma warning restore CS8601 // Possible null reference assignment.
+
+    return false;
+  }
 }
