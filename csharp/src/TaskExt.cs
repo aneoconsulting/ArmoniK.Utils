@@ -321,7 +321,7 @@ public static class TaskExt
   /// <param name="task"><see cref="Task" /> to check.</param>
   /// <returns>Whether the task has completed.</returns>
   [PublicAPI]
-  public static bool TryGetResult(this Task task)
+  public static bool TryGetSync(this Task task)
   {
     if (task.IsCompleted)
     {
@@ -342,8 +342,8 @@ public static class TaskExt
   /// <returns>Whether the task has completed.</returns>
   [PublicAPI]
   [ContractAnnotation("=> false, result: null; => true, result:notnull")]
-  public static bool TryGetResult<TOut>(this Task<TOut> task,
-                                        out  TOut       result)
+  public static bool TryGetSync<TOut>(this Task<TOut> task,
+                                      out  TOut       result)
   {
     if (task.IsCompleted)
     {

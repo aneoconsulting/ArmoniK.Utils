@@ -444,4 +444,144 @@ public class TaskExtTest
                   Is.EqualTo(i));
     }
   }
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
+  public void TryGetSyncPendingUntyped([Values] CompletedTaskStatus status)
+  {
+    var tcs = new TaskCompletionSource<ValueTuple>();
+
+    var task = TaskFactory(tcs.Task,
+                           status);
+
+    Assert.That(task.TryGetSync(),
+                Is.False);
+
+    tcs.SetCanceled();
+  }
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
+  public void TryGetSyncPending([Values] CompletedTaskStatus status)
+  {
+    var tcs = new TaskCompletionSource<ValueTuple>();
+
+    var task = TaskFactory(tcs.Task,
+                           status,
+                           new object());
+
+    Assert.That(task.TryGetSync(out var result),
+                Is.False);
+    Assert.That(result,
+                Is.Null);
+
+    tcs.SetCanceled();
+  }
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
+  public void TryGetSyncCompletedUntyped()
+  {
+    var called = false;
+    var task = TaskFactory(null,
+                           CompletedTaskStatus.RanToCompletion,
+                           () => called = true);
+
+    Assert.That(task.TryGetSync(),
+                Is.True);
+    Assert.That(called,
+                Is.True);
+  }
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
+  public void TryGetSyncCompleted()
+  {
+    var called = false;
+    var task = TaskFactory(null,
+                           CompletedTaskStatus.RanToCompletion,
+                           1,
+                           () => called = true);
+
+    Assert.That(task.TryGetSync(out var result),
+                Is.True);
+    Assert.That(result,
+                Is.EqualTo(1));
+    Assert.That(called,
+                Is.True);
+  }
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
+  public void TryGetSyncFailedUntyped()
+  {
+    var called = false;
+    var task = TaskFactory(null,
+                           CompletedTaskStatus.Failed,
+                           () => called = true);
+
+    Assert.That(() => task.TryGetSync(),
+                Throws.InstanceOf<ApplicationException>());
+    Assert.That(called,
+                Is.True);
+  }
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
+  public void TryGetSyncFailed()
+  {
+    var called = false;
+    var task = TaskFactory(null,
+                           CompletedTaskStatus.Failed,
+                           1,
+                           () => called = true);
+
+    Assert.That(() => task.TryGetSync(out _),
+                Throws.InstanceOf<ApplicationException>());
+    Assert.That(called,
+                Is.True);
+  }
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
+  public void TryGetSyncCanceledUntyped()
+  {
+    var called = false;
+    var task = TaskFactory(null,
+                           CompletedTaskStatus.Canceled,
+                           () => called = true);
+
+    Assert.That(() => task.TryGetSync(),
+                Throws.InstanceOf<OperationCanceledException>()
+                      .And.Property(nameof(OperationCanceledException.CancellationToken))
+                      .EqualTo(canceled_));
+    Assert.That(called,
+                Is.True);
+  }
+
+  [Test]
+  [Timeout(1000)]
+  [Repeat(10)]
+  public void TryGetSyncCanceled()
+  {
+    var called = false;
+    var task = TaskFactory(null,
+                           CompletedTaskStatus.Canceled,
+                           1,
+                           () => called = true);
+
+    Assert.That(() => task.TryGetSync(out _),
+                Throws.InstanceOf<OperationCanceledException>()
+                      .And.Property(nameof(OperationCanceledException.CancellationToken))
+                      .EqualTo(canceled_));
+    Assert.That(called,
+                Is.True);
+  }
 }

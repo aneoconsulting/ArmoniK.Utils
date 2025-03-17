@@ -115,7 +115,7 @@ public static class ValueTaskExt
   {
     try
     {
-      if (task.TryGetResult())
+      if (task.TryGetSync())
       {
         continuation();
         return new ValueTask();
@@ -165,7 +165,7 @@ public static class ValueTaskExt
   {
     try
     {
-      return task.TryGetResult()
+      return task.TryGetSync()
                ? new ValueTask<TOut>(continuation())
                : Core(task,
                       continuation);
@@ -209,7 +209,7 @@ public static class ValueTaskExt
   {
     try
     {
-      return task.TryGetResult()
+      return task.TryGetSync()
                ? continuation()
                : Core(task,
                       continuation);
@@ -256,7 +256,7 @@ public static class ValueTaskExt
   {
     try
     {
-      return task.TryGetResult()
+      return task.TryGetSync()
                ? continuation()
                : Core(task,
                       continuation);
@@ -303,7 +303,7 @@ public static class ValueTaskExt
   {
     try
     {
-      if (task.TryGetResult(out var result))
+      if (task.TryGetSync(out var result))
       {
         continuation(result);
         return new ValueTask();
@@ -351,7 +351,7 @@ public static class ValueTaskExt
   {
     try
     {
-      return task.TryGetResult(out var result)
+      return task.TryGetSync(out var result)
                ? new ValueTask<TOut>(continuation(result))
                : Core(task,
                       continuation);
@@ -394,7 +394,7 @@ public static class ValueTaskExt
   {
     try
     {
-      return task.TryGetResult(out var result)
+      return task.TryGetSync(out var result)
                ? continuation(result)
                : Core(task,
                       continuation);
@@ -439,7 +439,7 @@ public static class ValueTaskExt
   {
     try
     {
-      return task.TryGetResult(out var result)
+      return task.TryGetSync(out var result)
                ? continuation(result)
                : Core(task,
                       continuation);
@@ -466,7 +466,7 @@ public static class ValueTaskExt
   [PublicAPI]
   public static void WaitSync(this ValueTask task)
   {
-    if (!task.TryGetResult())
+    if (!task.TryGetSync())
     {
       // Not already completed `ValueTask` cannot be safely synchronously waited in a direct way.
       // Converting to actual `Task` enable to wait for it safely.
@@ -484,7 +484,7 @@ public static class ValueTaskExt
   /// <returns>Result of the task</returns>
   [PublicAPI]
   public static TResult WaitSync<TResult>(this ValueTask<TResult> task)
-    => task.TryGetResult(out var result)
+    => task.TryGetSync(out var result)
          ? result
          // Not already completed `ValueTask` cannot be safely synchronously waited in a direct way.
          // Converting to actual `Task` enable to wait for it safely.
@@ -499,7 +499,7 @@ public static class ValueTaskExt
   /// <param name="task"><see cref="ValueTask" /> to check.</param>
   /// <returns>Whether the task has completed.</returns>
   [PublicAPI]
-  public static bool TryGetResult(this ValueTask task)
+  public static bool TryGetSync(this ValueTask task)
   {
     if (task.IsCompleted)
     {
@@ -522,8 +522,8 @@ public static class ValueTaskExt
   /// <returns>Whether the task has completed.</returns>
   [PublicAPI]
   [ContractAnnotation("=> false, result: null; => true, result:notnull")]
-  public static bool TryGetResult<TOut>(this ValueTask<TOut> task,
-                                        out  TOut            result)
+  public static bool TryGetSync<TOut>(this ValueTask<TOut> task,
+                                      out  TOut            result)
   {
     if (task.IsCompleted)
     {
