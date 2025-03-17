@@ -95,7 +95,10 @@ public static class TaskExt
   ///   Creates a continuation that executes asynchronously when the target <see cref="Task{TIn}" /> completes successfully.
   /// </summary>
   /// <param name="task">The target task.</param>
-  /// <param name="continuation">A function to run when the <paramref name="task" /> completes.</param>
+  /// <param name="continuation">
+  ///   A function to run when the <paramref name="task" /> completes, whose input is the result of
+  ///   the <paramref name="task" />.
+  /// </param>
   /// <typeparam name="TIn">The type of the result of the target task.</typeparam>
   /// <returns>The continuation task.</returns>
   [PublicAPI]
@@ -108,7 +111,10 @@ public static class TaskExt
   ///   and returns a value.
   /// </summary>
   /// <param name="task">The target task.</param>
-  /// <param name="continuation">A function to run when the <paramref name="task" /> completes.</param>
+  /// <param name="continuation">
+  ///   A function to run when the <paramref name="task" /> completes, whose input is the result of
+  ///   the <paramref name="task" />.
+  /// </param>
   /// <typeparam name="TIn">The type of the result of the target task.</typeparam>
   /// <typeparam name="TOut">The type of the result produced by the continuation.</typeparam>
   /// <returns>The continuation task.</returns>
@@ -122,7 +128,10 @@ public static class TaskExt
   ///   Creates a continuation that executes asynchronously when the target <see cref="Task{TIn}" /> completes successfully.
   /// </summary>
   /// <param name="task">The target task.</param>
-  /// <param name="continuation">A function to run when the <paramref name="task" /> completes.</param>
+  /// <param name="continuation">
+  ///   A function to run when the <paramref name="task" /> completes, whose input is the result of
+  ///   the <paramref name="task" />.
+  /// </param>
   /// <typeparam name="TIn">The type of the result of the target task.</typeparam>
   /// <returns>The continuation task.</returns>
   [PublicAPI]
@@ -137,7 +146,10 @@ public static class TaskExt
   ///   and returns a value.
   /// </summary>
   /// <param name="task">The target task.</param>
-  /// <param name="continuation">A function to run when the <paramref name="task" /> completes.</param>
+  /// <param name="continuation">
+  ///   A function to run when the <paramref name="task" /> completes, whose input is the result of
+  ///   the <paramref name="task" />.
+  /// </param>
   /// <typeparam name="TIn">The type of the result of the target task.</typeparam>
   /// <typeparam name="TOut">The type of the result produced by the continuation.</typeparam>
   /// <returns>The continuation task.</returns>

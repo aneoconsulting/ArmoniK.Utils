@@ -294,7 +294,10 @@ public static class ValueTaskExt
   ///   </para>
   /// </remarks>
   /// <param name="task">The target task.</param>
-  /// <param name="continuation">A function to run when the <paramref name="task" /> completes.</param>
+  /// <param name="continuation">
+  ///   A function to run when the <paramref name="task" /> completes, whose input is the result of
+  ///   the <paramref name="task" />.
+  /// </param>
   /// <typeparam name="TIn">The type of the result of the target task.</typeparam>
   /// <returns>The continuation task.</returns>
   [PublicAPI]
@@ -341,7 +344,10 @@ public static class ValueTaskExt
   ///   </para>
   /// </remarks>
   /// <param name="task">The target task.</param>
-  /// <param name="continuation">A function to run when the <paramref name="task" /> completes.</param>
+  /// <param name="continuation">
+  ///   A function to run when the <paramref name="task" /> completes, whose input is the result of
+  ///   the <paramref name="task" />.
+  /// </param>
   /// <typeparam name="TIn">The type of the result of the target task.</typeparam>
   /// <typeparam name="TOut">The type of the result produced by the continuation.</typeparam>
   /// <returns>The continuation task.</returns>
@@ -385,7 +391,10 @@ public static class ValueTaskExt
   ///   </para>
   /// </remarks>
   /// <param name="task">The target task.</param>
-  /// <param name="continuation">A function to run when the <paramref name="task" /> completes.</param>
+  /// <param name="continuation">
+  ///   A function to run when the <paramref name="task" /> completes, whose input is the result of
+  ///   the <paramref name="task" />.
+  /// </param>
   /// <typeparam name="TIn">The type of the result of the target task.</typeparam>
   /// <returns>The continuation task.</returns>
   [PublicAPI]
@@ -429,7 +438,10 @@ public static class ValueTaskExt
   ///   </para>
   /// </remarks>
   /// <param name="task">The target task.</param>
-  /// <param name="continuation">A function to run when the <paramref name="task" /> completes.</param>
+  /// <param name="continuation">
+  ///   A function to run when the <paramref name="task" /> completes, whose input is the result of
+  ///   the <paramref name="task" />.
+  /// </param>
   /// <typeparam name="TIn">The type of the result of the target task.</typeparam>
   /// <typeparam name="TOut">The type of the result produced by the continuation.</typeparam>
   /// <returns>The continuation task.</returns>
