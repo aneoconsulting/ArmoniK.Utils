@@ -1,6 +1,6 @@
 ﻿// This file is part of the ArmoniK project
 //
-// Copyright (C) ANEO, 2022-2024. All rights reserved.
+// Copyright (C) ANEO, 2022-2025. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ using ArmoniK.Utils.Pool;
 
 using NUnit.Framework;
 
-namespace ArmoniK.Utils.Tests;
+namespace ArmoniK.Utils.Tests.PoolTests;
 
 // ReSharper disable MethodHasAsyncOverload
 // ReSharper disable UseAwaitUsing
@@ -588,7 +588,6 @@ public class ObjectPoolTest
     }
   }
 
-
   [Test]
   [Timeout(10000)]
   public async Task CreateCancellation([Values] Project project)
@@ -775,7 +774,7 @@ public class ObjectPoolTest
                                   Is.EqualTo(1));
                     });
 
-    switch ((asyncGet, asyncProject))
+    switch (asyncGet, asyncProject)
     {
       case (false, _):
         Assert.That(() => pool0.Get<int>(_ => throw new ApplicationException("")),
@@ -1024,7 +1023,6 @@ public class ObjectPoolTest
                       }
                     });
   }
-
 
   [Test]
   [Timeout(100)]
