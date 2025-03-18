@@ -48,13 +48,26 @@ public sealed class PoolPolicy<T>
   /// <returns>New instance</returns>
   [PublicAPI]
   public ValueTask<T> CreateAsync(CancellationToken cancellationToken = default)
-    => create_ switch
-       {
-         Func<T> f => new ValueTask<T>(f()),
-         Func<ValueTask<T>> f => f(),
-         Func<CancellationToken, ValueTask<T>> f => f(cancellationToken),
-         _ => throw new NotSupportedException($"Could not create object of type {typeof(T)} with factory of type {create_?.GetType()}"),
-       };
+  {
+    try
+    {
+      return create_ switch
+             {
+               Func<T> f => new ValueTask<T>(f()),
+               Func<ValueTask<T>> f => f(),
+               Func<CancellationToken, ValueTask<T>> f => f(cancellationToken),
+               _ => throw new NotSupportedException($"Could not create object of type {typeof(T)} with factory of type {create_?.GetType()}"),
+             };
+    }
+    catch (OperationCanceledException exception)
+    {
+      return ValueTaskExt.FromCanceled<T>(exception.CancellationToken);
+    }
+    catch (Exception exception)
+    {
+      return ValueTaskExt.FromException<T>(exception);
+    }
+  }
 
   /// <summary>
   ///   Validate the instance <paramref name="obj" /> to know if it can be used when it is acquired from the pool.
@@ -98,22 +111,35 @@ public sealed class PoolPolicy<T>
                                                T                 obj,
                                                Exception?        e,
                                                CancellationToken cancellationToken)
-    => validate switch
-       {
-         null            => new ValueTask<bool>(true),
-         Func<T, bool> f => new ValueTask<bool>(f(obj)),
-         Func<T, Exception?, bool> f => new ValueTask<bool>(f(obj,
-                                                              e)),
-         Func<T, ValueTask<bool>> f => f(obj),
-         Func<T, CancellationToken, ValueTask<bool>> f => f(obj,
-                                                            cancellationToken),
-         Func<T, Exception?, ValueTask<bool>> f => f(obj,
-                                                     e),
-         Func<T, Exception?, CancellationToken, ValueTask<bool>> f => f(obj,
-                                                                        e,
-                                                                        cancellationToken),
-         _ => throw new NotSupportedException($"Could not validate pooled object of type {typeof(T)} with validator of type {validate.GetType()}"),
-       };
+  {
+    try
+    {
+      return validate switch
+             {
+               null            => new ValueTask<bool>(true),
+               Func<T, bool> f => new ValueTask<bool>(f(obj)),
+               Func<T, Exception?, bool> f => new ValueTask<bool>(f(obj,
+                                                                    e)),
+               Func<T, ValueTask<bool>> f => f(obj),
+               Func<T, CancellationToken, ValueTask<bool>> f => f(obj,
+                                                                  cancellationToken),
+               Func<T, Exception?, ValueTask<bool>> f => f(obj,
+                                                           e),
+               Func<T, Exception?, CancellationToken, ValueTask<bool>> f => f(obj,
+                                                                              e,
+                                                                              cancellationToken),
+               _ => throw new NotSupportedException($"Could not validate pooled object of type {typeof(T)} with validator of type {validate.GetType()}"),
+             };
+    }
+    catch (OperationCanceledException exception)
+    {
+      return ValueTaskExt.FromCanceled<bool>(exception.CancellationToken);
+    }
+    catch (Exception exception)
+    {
+      return ValueTaskExt.FromException<bool>(exception);
+    }
+  }
 
   /// <summary>
   ///   Set the maximum number of instances that can be in use at the same time
