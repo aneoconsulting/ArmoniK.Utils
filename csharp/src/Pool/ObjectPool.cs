@@ -71,7 +71,7 @@ namespace ArmoniK.Utils.Pool;
 ///                                                          async (client, ct) => await client.PingAsync(ct));
 ///       /* ... */
 ///       await using var client = await pool.GetAsync(cancellationToken);
-///
+/// 
 ///       var result = client.Value.DoSomething();
 ///     </code>
 ///   </para>

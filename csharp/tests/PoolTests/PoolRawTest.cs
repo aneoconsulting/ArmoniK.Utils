@@ -484,7 +484,8 @@ public class PoolRawTest
       => F();
   }
 
-  private record AsyncDisposeAction(bool Async, Action F) : IAsyncDisposable
+  private record AsyncDisposeAction(bool   Async,
+                                    Action F) : IAsyncDisposable
   {
     public async ValueTask DisposeAsync()
     {
