@@ -36,19 +36,22 @@ public class DeferTest
   // Synchronous Disposable //
   ////////////////////////////
   [Test]
-  public void DeferEmptyShouldWork()
+  [AbortAfter(1000)]
+  public void DeferEmpty()
   {
     using var defer = Deferrer.Empty;
   }
 
   [Test]
-  public void DeferDefaultShouldWork()
+  [AbortAfter(1000)]
+  public void DeferDefault()
   {
     using var defer = new Deferrer();
   }
 
   [Test]
-  public void DeferShouldWork([Values] DeferrerKind kind)
+  [AbortAfter(1000)]
+  public void Defer([Values] DeferrerKind kind)
   {
     var i = 1;
     using (DisposableCreate(kind,
@@ -65,7 +68,8 @@ public class DeferTest
 
 
   [Test]
-  public void RedundantDeferShouldWork([Values] DeferrerKind kind)
+  [AbortAfter(1000)]
+  public void RedundantDefer([Values] DeferrerKind kind)
   {
     var i = 1;
 
@@ -88,8 +92,9 @@ public class DeferTest
   }
 
   [Test]
-  public void DeferResetShouldWork([Values] DeferrerKind? firstKind,
-                                   [Values] DeferrerKind? secondKind)
+  [AbortAfter(1000)]
+  public void DeferReset([Values] DeferrerKind? firstKind,
+                         [Values] DeferrerKind? secondKind)
   {
     var first  = false;
     var second = false;
@@ -125,7 +130,8 @@ public class DeferTest
   }
 
   [Test]
-  public async Task DeferShouldBeRaceConditionFree([Values] DeferrerKind kind)
+  [AbortAfter(10000)]
+  public async Task DeferRaceConditionFree([Values] DeferrerKind kind)
   {
     var i = 1;
 
@@ -144,7 +150,8 @@ public class DeferTest
   }
 
   [Test]
-  public void RedundantCopyDeferShouldWork([Values] DeferrerKind kind)
+  [AbortAfter(10000)]
+  public void RedundantCopyDefer([Values] DeferrerKind kind)
   {
     var i = 1;
 
@@ -166,7 +173,8 @@ public class DeferTest
     => new(f());
 
   [Test]
-  public void DeferShouldWorkWhenCollected([Values] DeferrerKind kind)
+  [AbortAfter(1000)]
+  public void DeferFinalizer([Values] DeferrerKind kind)
   {
     var i = 1;
 
@@ -201,7 +209,8 @@ public class DeferTest
   }
 
   [Test]
-  public void WrappedDeferShouldWork([Values] DeferrerKind kind)
+  [AbortAfter(1000)]
+  public void WrappedDefer([Values] DeferrerKind kind)
   {
     var i = 1;
     using (new DisposableWrapper(DisposableCreate(kind,
@@ -220,19 +229,22 @@ public class DeferTest
   // Asynchronous Disposable //
   /////////////////////////////
   [Test]
-  public async Task AsyncDeferEmptyShouldWork()
+  [AbortAfter(1000)]
+  public async Task AsyncDeferEmpty()
   {
     await using var defer = Deferrer.Empty;
   }
 
   [Test]
-  public async Task AsyncDeferDefaultShouldWork()
+  [AbortAfter(1000)]
+  public async Task AsyncDeferDefault()
   {
     await using var defer = new Deferrer();
   }
 
   [Test]
-  public async Task AsyncDeferShouldWork([Values] DeferrerKind kind)
+  [AbortAfter(1000)]
+  public async Task AsyncDefer([Values] DeferrerKind kind)
   {
     var i = 1;
     await using (AsyncDisposableCreate(kind,
@@ -249,7 +261,8 @@ public class DeferTest
 
 
   [Test]
-  public async Task RedundantAsyncDeferShouldWork([Values] DeferrerKind kind)
+  [AbortAfter(1000)]
+  public async Task RedundantAsyncDefer([Values] DeferrerKind kind)
   {
     var i = 1;
 
@@ -274,8 +287,9 @@ public class DeferTest
   }
 
   [Test]
-  public async Task AsyncDeferResetShouldWork([Values] DeferrerKind? firstKind,
-                                              [Values] DeferrerKind? secondKind)
+  [AbortAfter(1000)]
+  public async Task AsyncDeferReset([Values] DeferrerKind? firstKind,
+                                    [Values] DeferrerKind? secondKind)
   {
     var first  = false;
     var second = false;
@@ -311,7 +325,8 @@ public class DeferTest
   }
 
   [Test]
-  public async Task AsyncDeferShouldBeRaceConditionFree([Values] DeferrerKind kind)
+  [AbortAfter(10000)]
+  public async Task AsyncDeferRaceConditionFree([Values] DeferrerKind kind)
   {
     var i = 1;
 
@@ -332,7 +347,8 @@ public class DeferTest
   }
 
   [Test]
-  public async Task RedundantCopyAsyncDeferShouldWork([Values] DeferrerKind kind)
+  [AbortAfter(10000)]
+  public async Task RedundantCopyAsyncDefer([Values] DeferrerKind kind)
   {
     var i = 1;
 
@@ -354,7 +370,8 @@ public class DeferTest
     => new(f());
 
   [Test]
-  public void AsyncDeferShouldWorkWhenCollected([Values] DeferrerKind kind)
+  [AbortAfter(1000)]
+  public void AsyncDeferFinalizer([Values] DeferrerKind kind)
   {
     var i = 1;
 
@@ -389,7 +406,8 @@ public class DeferTest
   }
 
   [Test]
-  public async Task WrappedAsyncDeferShouldWork([Values] DeferrerKind kind)
+  [AbortAfter(1000)]
+  public async Task WrappedAsyncDefer([Values] DeferrerKind kind)
   {
     var i = 1;
     await using (new AsyncDisposableWrapper(AsyncDisposableCreate(kind,

@@ -56,8 +56,8 @@ public class ChunkTest
                       4,
                     },
                   })]
-  public void CheckChunkSize(IEnumerable<int> enumerable,
-                             int              chunkSize)
+  public void ChunkSize(IEnumerable<int> enumerable,
+                        int              chunkSize)
   {
     var lastLength = chunkSize;
     foreach (var chunk in enumerable.ToChunks(chunkSize))
@@ -85,8 +85,8 @@ public class ChunkTest
                       4,
                     },
                   })]
-  public void ChunkShouldKeepOrder(int[] array,
-                                   int   chunkSize)
+  public void ChunkOrder(int[] array,
+                         int   chunkSize)
   {
     var i = 0;
 
@@ -109,7 +109,7 @@ public class ChunkTest
   [TestCase(2)]
   [TestCase(3)]
   [TestCase(4)]
-  public void ChunkNullShouldSucceed(int chunkSize)
+  public void ChunkNull(int chunkSize)
   {
     var chunks = (null as IEnumerable<int>).ToChunks(chunkSize);
     // ReSharper disable once PossibleMultipleEnumeration
@@ -133,8 +133,8 @@ public class ChunkTest
             0)]
   [TestCase(1,
             -1)]
-  public void ChunkByZeroShouldFail(int? arraySize,
-                                    int  chunkSize)
+  public void ChunkByZero(int? arraySize,
+                          int  chunkSize)
   {
     var enumerable = arraySize is not null
                        ? Enumerable.Range(0,
@@ -149,6 +149,7 @@ public class ChunkTest
   // Asynchronous Chunk //
   ////////////////////////
   [Test]
+  [AbortAfter(1000)]
   [TestCaseSource(nameof(ChunkArrayCases),
                   new object[]
                   {
@@ -160,8 +161,8 @@ public class ChunkTest
                       4,
                     },
                   })]
-  public async Task CheckChunkAsyncSize(IEnumerable<int> enumerable,
-                                        int              chunkSize)
+  public async Task ChunkAsyncSize(IEnumerable<int> enumerable,
+                                   int              chunkSize)
   {
     var lastLength = chunkSize;
     await foreach (var chunk in enumerable.ToAsyncEnumerable()
@@ -180,6 +181,7 @@ public class ChunkTest
   }
 
   [Test]
+  [AbortAfter(1000)]
   [TestCaseSource(nameof(ChunkArrayCases),
                   new object[]
                   {
@@ -191,8 +193,8 @@ public class ChunkTest
                       4,
                     },
                   })]
-  public async Task ChunkAsyncShouldKeepOrder(int[] array,
-                                              int   chunkSize)
+  public async Task ChunkAsyncOrder(int[] array,
+                                    int   chunkSize)
   {
     var i = 0;
 
@@ -214,11 +216,12 @@ public class ChunkTest
   }
 
   [Test]
+  [AbortAfter(1000)]
   [TestCase(1)]
   [TestCase(2)]
   [TestCase(3)]
   [TestCase(4)]
-  public async Task ChunkAsyncNullShouldSucceed(int chunkSize)
+  public async Task ChunkAsyncNull(int chunkSize)
   {
     var chunks = (null as IAsyncEnumerable<int>).ToChunksAsync(chunkSize,
                                                                TimeSpan.FromMilliseconds(100));
@@ -232,6 +235,7 @@ public class ChunkTest
   }
 
   [Test]
+  [AbortAfter(1000)]
   [TestCase(null,
             0)]
   [TestCase(null,
@@ -244,14 +248,14 @@ public class ChunkTest
             0)]
   [TestCase(1,
             -1)]
-  public void ChunkAsyncByZeroShouldFail(int? arraySize,
-                                         int  chunkSize)
+  public void ChunkAsyncByZero(int? arraySize,
+                               int  chunkSize)
   {
     var enumerable = arraySize is not null
                        ? Enumerable.Range(0,
                                           (int)arraySize)
                                    .ToAsyncEnumerable()
-                       : null as IAsyncEnumerable<int>;
+                       : null;
     Assert.That(() => enumerable.ToChunksAsync(chunkSize,
                                                TimeSpan.FromMilliseconds(100))
                                 .ToListAsync(),
@@ -263,7 +267,8 @@ public class ChunkTest
   // Asynchronous Chunk specific tests //
   ///////////////////////////////////////
   [Test]
-  public async Task ChunkAsyncWithDelayShouldSucceed()
+  [AbortAfter(10000)]
+  public async Task ChunkAsyncWithDelay()
   {
     async IAsyncEnumerable<int> Gen()
     {
@@ -345,9 +350,10 @@ public class ChunkTest
   }
 
   [Test]
+  [AbortAfter(10000)]
   [TestCase(1)]
   [TestCase(200)]
-  public async Task ChunkAsyncWithThrowShouldFail(int delay)
+  public async Task ChunkAsyncWithThrow(int delay)
   {
     async IAsyncEnumerable<int> Gen()
     {
@@ -396,7 +402,8 @@ public class ChunkTest
   }
 
   [Test]
-  public async Task ChunkAsyncWithExternalCancellationShouldFail()
+  [AbortAfter(1000)]
+  public async Task ChunkAsyncWithExternalCancellation()
   {
     async IAsyncEnumerable<int> Gen()
     {
@@ -437,9 +444,10 @@ public class ChunkTest
   }
 
   [Test]
+  [AbortAfter(1000)]
   [TestCase(false)]
   [TestCase(true)]
-  public async Task ChunkAsyncWithInternalCancellationShouldFail(bool afterChunk)
+  public async Task ChunkAsyncWithInternalCancellation(bool afterChunk)
   {
     var cts = new CancellationTokenSource();
 

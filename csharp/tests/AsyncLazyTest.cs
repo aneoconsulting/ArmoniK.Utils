@@ -28,9 +28,8 @@ public class AsyncLazyTest
   // With type //
   ///////////////
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task AsyncLazyShouldWork(bool async)
+  [AbortAfter(1000)]
+  public async Task AsyncLazy([Values] bool async)
   {
     var i = 0;
 
@@ -61,9 +60,8 @@ public class AsyncLazyTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task AsyncLazyValueShouldBeAsync(bool async)
+  [AbortAfter(10000)]
+  public async Task AsyncLazyValue([Values] bool async)
   {
     var i = 0;
 
@@ -132,9 +130,8 @@ public class AsyncLazyTest
   // Without type //
   //////////////////
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task AsyncLazyUntypedShouldWork(bool async)
+  [AbortAfter(1000)]
+  public async Task AsyncLazyUntyped([Values] bool async)
   {
     var i = 0;
 
@@ -157,9 +154,8 @@ public class AsyncLazyTest
   }
 
   [Test]
-  [TestCase(false)]
-  [TestCase(true)]
-  public async Task AsyncLazyUntypedValueShouldBeAsync(bool async)
+  [AbortAfter(10000)]
+  public async Task AsyncLazyUntypedValue([Values] bool async)
   {
     var i = 0;
 

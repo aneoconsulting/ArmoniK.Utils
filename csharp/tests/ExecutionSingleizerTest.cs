@@ -50,7 +50,8 @@ public class ExecutionSingleizerTest
   private int                       val_;
 
   [Test]
-  public async Task SingleExecutionShouldSucceed()
+  [AbortAfter(1000)]
+  public async Task SingleExecution()
   {
     var i = await single_!.Call(ct => Set(1,
                                           0,
@@ -63,7 +64,8 @@ public class ExecutionSingleizerTest
   }
 
   [Test]
-  public async Task RepeatedExecutionShouldSucceed()
+  [AbortAfter(1000)]
+  public async Task RepeatedExecution()
   {
     for (var t = 1; t <= 10; ++t)
     {
@@ -80,7 +82,8 @@ public class ExecutionSingleizerTest
   }
 
   [Test]
-  public async Task ConcurrentExecutionShouldSucceed()
+  [AbortAfter(1000)]
+  public async Task ConcurrentExecution()
   {
     var ti = single_!.Call(ct => Set(1,
                                      10,
@@ -99,7 +102,8 @@ public class ExecutionSingleizerTest
   }
 
   [Test]
-  public async Task RepeatedConcurrentExecutionShouldSucceed()
+  [AbortAfter(10000)]
+  public async Task RepeatedConcurrentExecution()
   {
     for (var t = 1; t <= 10 * 2; t += 2)
     {
@@ -122,7 +126,8 @@ public class ExecutionSingleizerTest
   }
 
   [Test]
-  public async Task ManyConcurrentExecutionShouldSucceed()
+  [AbortAfter(100000)]
+  public async Task ManyConcurrentExecution()
   {
     var n = 10000000;
 
@@ -145,7 +150,8 @@ public class ExecutionSingleizerTest
 
 
   [Test]
-  public void ManyThreadedConcurrentExecutionShouldSucceed()
+  [AbortAfter(100000)]
+  public void ManyThreadedConcurrentExecution()
   {
     var n = 10000000;
 
@@ -166,7 +172,8 @@ public class ExecutionSingleizerTest
   }
 
   [Test]
-  public void CancelExecutionShouldFail()
+  [AbortAfter(1000)]
+  public void CancelExecution()
   {
     Assert.That(async () =>
                 {
@@ -197,7 +204,8 @@ public class ExecutionSingleizerTest
   }
 
   [Test]
-  public async Task ConcurrentPartialCancelExecutionShouldSucceed()
+  [AbortAfter(10000)]
+  public async Task ConcurrentPartialCancelExecution()
   {
     var cts = new CancellationTokenSource();
     var t1 = single_!.Call(ct => Set(1,
@@ -220,7 +228,8 @@ public class ExecutionSingleizerTest
   }
 
   [Test]
-  public async Task ConcurrentCancelExecutionShouldFail()
+  [AbortAfter(1000)]
+  public async Task ConcurrentCancelExecution()
   {
     var cts = new CancellationTokenSource();
     var t1 = single_!.Call(ct => Set(1,
@@ -246,7 +255,8 @@ public class ExecutionSingleizerTest
   }
 
   [Test]
-  public async Task CheckExpire()
+  [AbortAfter(10000)]
+  public async Task Expire()
   {
     var single = new ExecutionSingleizer<int>(TimeSpan.FromMilliseconds(100));
     var i = await single.Call(ct => Set(1,
