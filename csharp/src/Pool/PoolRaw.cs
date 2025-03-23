@@ -35,7 +35,7 @@ public interface IPoolRaw<T>
   /// <param name="cancellationToken">Cancellation token used for stopping the acquire</param>
   /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
   /// <returns>An object that has been acquired</returns>
-  public ValueTask<T> AcquireAsync(CancellationToken cancellationToken);
+  public ValueTask<T> AcquireAsync(CancellationToken cancellationToken = default);
 
   /// <summary>
   ///   Release an object to the pool.
@@ -45,8 +45,8 @@ public interface IPoolRaw<T>
   /// <param name="cancellationToken">Cancellation token used for stopping the release</param>
   /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
   public ValueTask ReleaseAsync(T                 obj,
-                                Exception?        exception,
-                                CancellationToken cancellationToken);
+                                Exception?        exception         = null,
+                                CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -133,6 +133,16 @@ public class PoolRaw<T> : IPoolRaw<T>, IDisposable, IAsyncDisposable
   ///   Acquire a new object from the pool, creating it if there is no object in the pool.
   ///   If the limit of object has been reached, this method will wait for an object to be released.
   /// </summary>
+  /// <remarks>
+  ///   <para>
+  ///     If <see cref="PoolPolicy{T}.ValidateAcquireAsync" /> raise an exception,
+  ///     the object taken from the pool is disposed, and the exception is propagated.
+  ///   </para>
+  ///   <para>
+  ///     If <see cref="PoolPolicy{T}.ValidateAcquireAsync" /> is cancelled,
+  ///     the object taken from the pool is returned to the pool, and the cancellation is propagated.
+  ///   </para>
+  /// </remarks>
   /// <param name="cancellationToken">Cancellation token used for stopping the acquire</param>
   /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
   /// <returns>An object that has been acquired</returns>
@@ -148,17 +158,31 @@ public class PoolRaw<T> : IPoolRaw<T>, IDisposable, IAsyncDisposable
     {
       while (bag_.TryTake(out var res))
       {
-        var isValid = await policy_.ValidateAcquireAsync(res,
-                                                         cancellationToken)
-                                   .ConfigureAwait(false);
-
-        if (isValid)
+        try
         {
-          return res;
-        }
+          var isValid = await policy_.ValidateAcquireAsync(res,
+                                                           cancellationToken)
+                                     .ConfigureAwait(false);
 
-        await DisposeOneAsync(res)
-          .ConfigureAwait(false);
+          if (isValid)
+          {
+            return res;
+          }
+
+          await DisposeOneAsync(res)
+            .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+          bag_.Add(res);
+          throw;
+        }
+        catch
+        {
+          await DisposeOneAsync(res)
+            .ConfigureAwait(false);
+          throw;
+        }
       }
 
       return await policy_.CreateAsync(cancellationToken)
@@ -174,13 +198,23 @@ public class PoolRaw<T> : IPoolRaw<T>, IDisposable, IAsyncDisposable
   /// <summary>
   ///   Release an object to the pool. If the object is still valid, another consumer can reuse the object.
   /// </summary>
+  /// <remarks>
+  ///   <para>
+  ///     If <see cref="PoolPolicy{T}.ValidateReleaseAsync" /> raise an exception,
+  ///     <paramref name="obj" /> is disposed, and the exception is propagated.
+  ///   </para>
+  ///   <para>
+  ///     If <see cref="PoolPolicy{T}.ValidateReleaseAsync" /> is cancelled,
+  ///     <paramref name="obj" /> is returned to the pool, and the cancellation is propagated.
+  ///   </para>
+  /// </remarks>
   /// <param name="obj">Object to release to the pool</param>
   /// <param name="exception">Exception that has been seen during the use of obj</param>
   /// <param name="cancellationToken">Cancellation token used for stopping the release</param>
   /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
   public async ValueTask ReleaseAsync(T                 obj,
-                                      Exception?        exception,
-                                      CancellationToken cancellationToken)
+                                      Exception?        exception         = null,
+                                      CancellationToken cancellationToken = default)
   {
     try
     {
@@ -198,6 +232,17 @@ public class PoolRaw<T> : IPoolRaw<T>, IDisposable, IAsyncDisposable
         await DisposeOneAsync(obj)
           .ConfigureAwait(false);
       }
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+      bag_.Add(obj);
+      throw;
+    }
+    catch
+    {
+      await DisposeOneAsync(obj)
+        .ConfigureAwait(false);
+      throw;
     }
     finally
     {

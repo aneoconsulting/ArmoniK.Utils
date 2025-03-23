@@ -25,6 +25,7 @@ using NUnit.Framework.Constraints;
 
 namespace ArmoniK.Utils.Tests.PoolTests;
 
+[TestFixture(TestOf = typeof(PoolPolicy<>))]
 public class PoolPolicyTest
 {
   public enum CreateType

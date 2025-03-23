@@ -25,6 +25,7 @@ using NUnit.Framework;
 
 namespace ArmoniK.Utils.Tests.PoolTests;
 
+[TestFixture(TestOf = typeof(ObjectPool<>))]
 // ReSharper disable MethodHasAsyncOverload
 // ReSharper disable UseAwaitUsing
 public class ObjectPoolTest
