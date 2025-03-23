@@ -33,7 +33,8 @@ public class AbortAfterAttribute(int timeout) : PropertyAttribute, IWrapTestMeth
     => new Command(timeout,
                    command);
 
-  private class Command(int timeout, TestCommand innerCommand) : DelegatingTestCommand(innerCommand)
+  private class Command(int         timeout,
+                        TestCommand innerCommand) : DelegatingTestCommand(innerCommand)
   {
     public override TestResult Execute(TestExecutionContext context)
     {
