@@ -37,7 +37,7 @@ public class TaskExtTest
   private readonly CancellationToken canceled_ = new(true);
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   [SuppressMessage("ReSharper",
                    "SuggestVarOrType_SimpleTypes")]
@@ -99,7 +99,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   [SuppressMessage("ReSharper",
                    "SuggestVarOrType_SimpleTypes")]
@@ -165,7 +165,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   [SuppressMessage("ReSharper",
                    "SuggestVarOrType_SimpleTypes")]
@@ -230,7 +230,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   [SuppressMessage("ReSharper",
                    "SuggestVarOrType_Elsewhere")]
@@ -346,7 +346,7 @@ public class TaskExtTest
 
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(3)]
   [TestCase(0)]
   [TestCase(1)]
@@ -376,7 +376,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(3)]
   [TestCase(0)]
   [TestCase(1)]
@@ -416,7 +416,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(3)]
   [TestCase(0)]
   [TestCase(1)]
@@ -446,7 +446,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncPendingUntyped([Values] CompletedTaskStatus status)
   {
@@ -462,7 +462,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncPending([Values] CompletedTaskStatus status)
   {
@@ -481,7 +481,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncCompletedUntyped()
   {
@@ -497,7 +497,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncCompleted()
   {
@@ -516,7 +516,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncFailedUntyped()
   {
@@ -532,7 +532,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncFailed()
   {
@@ -549,7 +549,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncCanceledUntyped()
   {
@@ -567,7 +567,7 @@ public class TaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncCanceled()
   {

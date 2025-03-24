@@ -64,10 +64,11 @@ public class ParallelSelectExtTest
   };
 
   [Test]
-  public async Task ParallelSelectShouldSucceed([ValueSource(nameof(SelectCases))] (int n, int? parallelism) param,
-                                                [Values]                           bool?                     unordered,
-                                                [Values]                           bool                      blocking,
-                                                [Values]                           bool                      useAsync)
+  [AbortAfter(10000)]
+  public async Task ParallelSelect([ValueSource(nameof(SelectCases))] (int n, int? parallelism) param,
+                                   [Values]                           bool?                     unordered,
+                                   [Values]                           bool                      blocking,
+                                   [Values]                           bool                      useAsync)
   {
     if (blocking && InvalidBlocking(param))
     {
@@ -98,11 +99,12 @@ public class ParallelSelectExtTest
   }
 
   [Test]
+  [AbortAfter(100000)]
   [Retry(4)]
-  public async Task ParallelSelectLimitShouldSucceed([ValueSource(nameof(SelectLimitCases))] (int n, int? parallelism) param,
-                                                     [Values]                                bool                      unordered,
-                                                     [Values]                                bool                      blocking,
-                                                     [Values]                                bool                      useAsync)
+  public async Task ParallelSelectLimit([ValueSource(nameof(SelectLimitCases))] (int n, int? parallelism) param,
+                                        [Values]                                bool                      unordered,
+                                        [Values]                                bool                      blocking,
+                                        [Values]                                bool                      useAsync)
   {
     if (blocking && InvalidBlocking(param))
     {
@@ -171,8 +173,9 @@ public class ParallelSelectExtTest
   }
 
   [Test]
-  public async Task UnorderedCompletionShouldSucceed([Values] bool  useAsync,
-                                                     [Values] bool? unordered)
+  [AbortAfter(10000)]
+  public async Task UnorderedCompletion([Values] bool  useAsync,
+                                        [Values] bool? unordered)
   {
     var firstDone = false;
 
@@ -218,10 +221,11 @@ public class ParallelSelectExtTest
   }
 
   [Test]
-  public async Task CancellationShouldSucceed([Values] bool useAsync,
-                                              [Values] bool unordered,
-                                              [Values] bool cancellationAware,
-                                              [Values] bool cancelLast)
+  [AbortAfter(100000)]
+  public async Task Cancellation([Values] bool useAsync,
+                                 [Values] bool unordered,
+                                 [Values] bool cancellationAware,
+                                 [Values] bool cancelLast)
   {
     const int cancelAt = 100;
 
@@ -293,9 +297,10 @@ public class ParallelSelectExtTest
   }
 
   [Test]
-  public async Task ThrowingShouldSucceed([Values] bool useAsync,
-                                          [Values] bool cancellationAware,
-                                          [Values] bool throwLast)
+  [AbortAfter(10000)]
+  public async Task Throwing([Values] bool useAsync,
+                             [Values] bool cancellationAware,
+                             [Values] bool throwLast)
   {
     const int throwAt = 100;
 
@@ -336,8 +341,9 @@ public class ParallelSelectExtTest
   }
 
   [Test]
-  public async Task ThrowingUnorderedShouldSucceed([Values] bool useAsync,
-                                                   [Values] bool cancellationAware)
+  [AbortAfter(10000)]
+  public async Task ThrowingUnordered([Values] bool useAsync,
+                                      [Values] bool cancellationAware)
   {
     var processorCount = Environment.ProcessorCount;
     var (n, parallelism) = useAsync
@@ -385,10 +391,11 @@ public class ParallelSelectExtTest
 
 
   [Test]
-  public async Task ParallelForeachShouldSucceed([ValueSource(nameof(SelectCases))] (int n, int? parallelism) param,
-                                                 [Values]                           bool?                     unordered,
-                                                 [Values]                           bool                      blocking,
-                                                 [Values]                           bool                      useAsync)
+  [AbortAfter(10000)]
+  public async Task ParallelForeach([ValueSource(nameof(SelectCases))] (int n, int? parallelism) param,
+                                    [Values]                           bool?                     unordered,
+                                    [Values]                           bool                      blocking,
+                                    [Values]                           bool                      useAsync)
   {
     if (blocking && InvalidBlocking(param))
     {
@@ -439,11 +446,12 @@ public class ParallelSelectExtTest
   }
 
   [Test]
+  [AbortAfter(100000)]
   [Retry(4)]
-  public async Task ParallelForeachLimitShouldSucceed([ValueSource(nameof(SelectLimitCases))] (int n, int? parallelism) param,
-                                                      [Values]                                bool                      unordered,
-                                                      [Values]                                bool                      blocking,
-                                                      [Values]                                bool                      useAsync)
+  public async Task ParallelForeachLimit([ValueSource(nameof(SelectLimitCases))] (int n, int? parallelism) param,
+                                         [Values]                                bool                      unordered,
+                                         [Values]                                bool                      blocking,
+                                         [Values]                                bool                      useAsync)
   {
     if (blocking && InvalidBlocking(param))
     {
@@ -525,10 +533,11 @@ public class ParallelSelectExtTest
 
 
   [Test]
-  public async Task ForeachCancellationShouldSucceed([Values] bool useAsync,
-                                                     [Values] bool unordered,
-                                                     [Values] bool cancellationAware,
-                                                     [Values] bool cancelLast)
+  [AbortAfter(100000)]
+  public async Task ForeachCancellation([Values] bool useAsync,
+                                        [Values] bool unordered,
+                                        [Values] bool cancellationAware,
+                                        [Values] bool cancelLast)
   {
     const int cancelAt = 100;
 

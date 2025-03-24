@@ -102,7 +102,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   [SuppressMessage("ReSharper",
                    "SuggestVarOrType_SimpleTypes")]
@@ -164,7 +164,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   [SuppressMessage("ReSharper",
                    "SuggestVarOrType_SimpleTypes")]
@@ -230,7 +230,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   [SuppressMessage("ReSharper",
                    "SuggestVarOrType_SimpleTypes")]
@@ -295,7 +295,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   [SuppressMessage("ReSharper",
                    "SuggestVarOrType_Elsewhere")]
@@ -411,7 +411,7 @@ public class ValueTaskExtTest
 
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void WaitSyncValueTask()
   {
@@ -424,7 +424,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void WaitSyncValueTaskUntyped()
   {
@@ -435,7 +435,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void WaitSyncTask()
   {
@@ -448,7 +448,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void WaitSyncTaskUntyped()
   {
@@ -459,7 +459,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncPendingUntyped([Values] CompletedTaskStatus status)
   {
@@ -475,7 +475,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncPending([Values] CompletedTaskStatus status)
   {
@@ -494,7 +494,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncCompletedUntyped()
   {
@@ -510,7 +510,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncCompleted()
   {
@@ -529,7 +529,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncFailedUntyped()
   {
@@ -545,7 +545,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncFailed()
   {
@@ -562,7 +562,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetSyncCanceledUntyped()
   {
@@ -580,7 +580,7 @@ public class ValueTaskExtTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   [Repeat(10)]
   public void TryGetCanceledFailed()
   {

@@ -24,7 +24,7 @@ namespace ArmoniK.Utils.Tests;
 public class EnumerableExtTest
 {
   [Test]
-  public void AsIListNullShouldSucceed()
+  public void AsIListNull()
   {
     var list = (null as IEnumerable<int>).AsIList();
     Assert.That(list,
@@ -34,7 +34,7 @@ public class EnumerableExtTest
   }
 
   [Test]
-  public void AsICollectionNullShouldSucceed()
+  public void AsICollectionNull()
   {
     var collection = (null as IEnumerable<int>).AsICollection();
     Assert.That(collection,
@@ -47,7 +47,7 @@ public class EnumerableExtTest
   [TestCase(0)]
   [TestCase(1)]
   [TestCase(4)]
-  public void AsIListShouldKeepElements(int n)
+  public void AsIListElements(int n)
   {
     var list = GenerateInts(n)
       .AsIList();
@@ -72,7 +72,7 @@ public class EnumerableExtTest
   [TestCase(0)]
   [TestCase(1)]
   [TestCase(4)]
-  public void AsICollectionShouldKeepElements(int n)
+  public void AsICollectionElements(int n)
   {
     var collection = GenerateInts(n)
       .AsICollection();
@@ -98,7 +98,7 @@ public class EnumerableExtTest
   [TestCase(0)]
   [TestCase(1)]
   [TestCase(4)]
-  public void AsIListShouldKeepReferenceArray(int n)
+  public void AsIListReferenceArray(int n)
   {
     var orig = Enumerable.Range(0,
                                 n)
@@ -112,7 +112,7 @@ public class EnumerableExtTest
   [TestCase(0)]
   [TestCase(1)]
   [TestCase(4)]
-  public void AsIListShouldKeepReferenceList(int n)
+  public void AsIListReferenceList(int n)
   {
     var orig = Enumerable.Range(0,
                                 n)
@@ -126,7 +126,7 @@ public class EnumerableExtTest
   [TestCase(0)]
   [TestCase(1)]
   [TestCase(4)]
-  public void AsICollectionShouldKeepReferenceArray(int n)
+  public void AsICollectionReferenceArray(int n)
   {
     var orig = Enumerable.Range(0,
                                 n)
@@ -140,7 +140,7 @@ public class EnumerableExtTest
   [TestCase(0)]
   [TestCase(1)]
   [TestCase(4)]
-  public void AsICollectionShouldKeepReferenceList(int n)
+  public void AsICollectionReferenceList(int n)
   {
     var orig = Enumerable.Range(0,
                                 n)
@@ -154,7 +154,7 @@ public class EnumerableExtTest
   [TestCase(0)]
   [TestCase(1)]
   [TestCase(4)]
-  public void AsICollectionShouldKeepReferenceHashSet(int n)
+  public void AsICollectionReferenceHashSet(int n)
   {
     var orig = new HashSet<int>(Enumerable.Range(0,
                                                  n));
