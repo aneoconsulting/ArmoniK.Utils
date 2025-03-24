@@ -53,6 +53,7 @@ public class PoolPolicyTest
   }
 
   [Test]
+  [AbortAfter(1000)]
   public void Default()
   {
     var policy = new PoolPolicy<int>();
@@ -88,6 +89,7 @@ public class PoolPolicyTest
   }
 
   [Test]
+  [AbortAfter(1000)]
   public void Create([Values] CreateType createType,
                      [Values] ThrowType  throwType,
                      [Values(null,
@@ -144,6 +146,7 @@ public class PoolPolicyTest
   }
 
   [Test]
+  [AbortAfter(1000)]
   public void Validate([Values] ValidateType validateType,
                        [Values] ThrowType    throwType,
                        [Values(null,
@@ -194,6 +197,7 @@ public class PoolPolicyTest
   }
 
   [Test]
+  [AbortAfter(1000)]
   public void ValidateAcquire([Values] ValidateType validateType,
                               [Values] ThrowType    throwType,
                               [Values(null,
@@ -242,6 +246,7 @@ public class PoolPolicyTest
   }
 
   [Test]
+  [AbortAfter(1000)]
   public void ValidateRelease([Values] ValidateType validateType,
                               [Values] ThrowType    throwType,
                               [Values(null,
@@ -289,6 +294,7 @@ public class PoolPolicyTest
   }
 
   [Test]
+  [AbortAfter(1000)]
   [TestCase(null)]
   [TestCase(-1)]
   [TestCase(0)]

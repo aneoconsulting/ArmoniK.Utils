@@ -30,64 +30,42 @@ namespace ArmoniK.Utils.Tests.PoolTests;
 public class PoolRawTest
 {
   [Test]
-  [CancelAfter(1000)]
+  [AbortAfter(1000)]
   [SuppressMessage("ReSharper",
                    "MethodSupportsCancellation")]
-  public async Task DefaultValues(CancellationToken cancellationTokenTimeout)
+  public async Task DefaultValues()
   {
     var x = 0;
     await using var pool = new PoolRaw<int>(new PoolPolicy<int>().SetCreate(() => ++x)
                                                                  .SetValidate(_ => false));
 
-    Assert.That(await Task.WhenAny(cancellationTokenTimeout.AsTask<int>(),
-                                   pool.AcquireAsync()
-                                       .AsTask())
-                          .Unwrap(),
+    Assert.That(await pool.AcquireAsync(),
                 Is.EqualTo(1));
 
 
-    Assert.That(await Task.WhenAny(cancellationTokenTimeout.AsTask<int>(),
-                                   pool.AcquireAsync()
-                                       .AsTask())
-                          .Unwrap(),
+    Assert.That(await pool.AcquireAsync(),
                 Is.EqualTo(2));
 
-    Assert.That(await Task.WhenAny(cancellationTokenTimeout.AsTask<int>(),
-                                   pool.AcquireAsync(CancellationToken.None)
-                                       .AsTask())
-                          .Unwrap(),
+    Assert.That(await pool.AcquireAsync(CancellationToken.None),
                 Is.EqualTo(3));
 
-    await Task.WhenAny(cancellationTokenTimeout.AsTask(),
-                       pool.ReleaseAsync(1)
-                           .AsTask())
-              .Unwrap();
+    await pool.ReleaseAsync(1);
 
     // ReSharper disable once RedundantArgumentDefaultValue
-    await Task.WhenAny(cancellationTokenTimeout.AsTask(),
-                       pool.ReleaseAsync(2,
-                                         null)
-                           .AsTask())
-              .Unwrap();
+    await pool.ReleaseAsync(2,
+                            null);
 
-    await Task.WhenAny(cancellationTokenTimeout.AsTask(),
-                       pool.ReleaseAsync(3,
-                                         null,
-                                         CancellationToken.None)
-                           .AsTask())
-              .Unwrap();
+    await pool.ReleaseAsync(3,
+                            null,
+                            CancellationToken.None);
 
-    Assert.That(await Task.WhenAny(cancellationTokenTimeout.AsTask<int>(),
-                                   pool.AcquireAsync()
-                                       .AsTask())
-                          .Unwrap(),
+    Assert.That(await pool.AcquireAsync(),
                 Is.EqualTo(4));
-
-    cancellationTokenTimeout.ThrowIfCancellationRequested();
   }
 
   [Test]
   [CancelAfter(1000)]
+  [AbortAfter(1500)]
   public async Task AcquireReuse(CancellationToken cancellationTokenTimeout)
   {
     var x    = 0;
@@ -111,6 +89,7 @@ public class PoolRawTest
 
   [Test]
   [CancelAfter(1000)]
+  [AbortAfter(1500)]
   public async Task AcquireNoReuse(CancellationToken cancellationTokenTimeout)
   {
     var x = 0;
@@ -133,6 +112,7 @@ public class PoolRawTest
 
   [Test]
   [CancelAfter(1000)]
+  [AbortAfter(1500)]
   public async Task AcquireLimit([Values] bool     reuse,
                                  CancellationToken cancellationTokenTimeout)
   {
@@ -166,6 +146,7 @@ public class PoolRawTest
 
   [Test]
   [CancelAfter(1000)]
+  [AbortAfter(1500)]
   public async Task ValidateAcquire([Values] bool?    asyncDispose,
                                     CancellationToken cancellationTokenTimeout)
   {
@@ -203,6 +184,7 @@ public class PoolRawTest
 
   [Test]
   [CancelAfter(1000)]
+  [AbortAfter(1500)]
   public async Task ValidateRelease([Values] bool?    asyncDispose,
                                     CancellationToken cancellationTokenTimeout)
   {
@@ -228,6 +210,7 @@ public class PoolRawTest
 
   [Test]
   [CancelAfter(1000)]
+  [AbortAfter(1500)]
   public async Task CreateFailure(CancellationToken cancellationTokenTimeout)
   {
     var pool = new PoolRaw<int>(new PoolPolicy<int>().SetCreate(() => ValueTaskExt.FromException<int>(new ApplicationException())));
@@ -246,6 +229,7 @@ public class PoolRawTest
 
   [Test]
   [CancelAfter(1000)]
+  [AbortAfter(1500)]
   public async Task ValidateAcquireFailure([Values] bool?    asyncDispose,
                                            CancellationToken cancellationTokenTimeout)
   {
@@ -280,6 +264,7 @@ public class PoolRawTest
 
   [Test]
   [CancelAfter(1000)]
+  [AbortAfter(1500)]
   public async Task ValidateReleaseFailure([Values] bool?    asyncDispose,
                                            CancellationToken cancellationTokenTimeout)
   {
@@ -314,6 +299,7 @@ public class PoolRawTest
 
   [Test]
   [CancelAfter(1000)]
+  [AbortAfter(1500)]
   public async Task CreateCancellation([Values] bool?    asyncDispose,
                                        CancellationToken cancellationTokenTimeout)
   {
@@ -344,6 +330,7 @@ public class PoolRawTest
 
   [Test]
   [CancelAfter(1000)]
+  [AbortAfter(1500)]
   public async Task ValidateAcquireCancellation([Values] bool?    asyncDispose,
                                                 CancellationToken cancellationTokenTimeout)
   {
@@ -389,6 +376,7 @@ public class PoolRawTest
 
   [Test]
   [CancelAfter(1000)]
+  [AbortAfter(1500)]
   public async Task ValidateReleaseCancellation([Values] bool?    asyncDispose,
                                                 CancellationToken cancellationTokenTimeout)
   {
@@ -434,6 +422,7 @@ public class PoolRawTest
 
   [Test]
   [CancelAfter(1000)]
+  [AbortAfter(1500)]
   public async Task ValidateReleaseException([Values] bool?    asyncDispose,
                                              CancellationToken cancellationTokenTimeout)
   {

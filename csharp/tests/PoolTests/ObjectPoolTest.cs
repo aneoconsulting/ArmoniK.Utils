@@ -45,13 +45,13 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(100)]
-  public async Task ReuseObjectsFromPoolShouldSucceed([Values] bool      asyncFactory,
-                                                      [Values] UseMethod useMethod,
-                                                      [Values] bool      asyncUse,
-                                                      [Values] bool      asyncContext,
-                                                      [Values] Project   project,
-                                                      [Values] Project   projectGet)
+  [AbortAfter(100)]
+  public async Task ReuseObjectsFromPool([Values] bool      asyncFactory,
+                                         [Values] UseMethod useMethod,
+                                         [Values] bool      asyncUse,
+                                         [Values] bool      asyncContext,
+                                         [Values] Project   project,
+                                         [Values] Project   projectGet)
   {
     var nbCreated = 0;
     await using var pool = Projected(project,
@@ -156,11 +156,11 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(100)]
-  public async Task PoolDisposeShouldSucceed([Values] bool    asyncDisposable,
-                                             [Values] bool    asyncDispose,
-                                             [Values] bool    asyncFactory,
-                                             [Values] Project project)
+  [AbortAfter(100)]
+  public async Task PoolDispose([Values] bool    asyncDisposable,
+                                [Values] bool    asyncDispose,
+                                [Values] bool    asyncFactory,
+                                [Values] Project project)
   {
     var nbDisposed = 0;
 
@@ -198,12 +198,12 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(100)]
-  public async Task ReturnDisposeShouldSucceed([Values] bool    asyncDisposable,
-                                               [Values] bool    asyncDispose,
-                                               [Values] bool    asyncFactory,
-                                               [Values] Project project,
-                                               [Values] Project projectGet)
+  [AbortAfter(100)]
+  public async Task ReturnDispose([Values] bool    asyncDisposable,
+                                  [Values] bool    asyncDispose,
+                                  [Values] bool    asyncFactory,
+                                  [Values] Project project,
+                                  [Values] Project projectGet)
   {
     var nbDisposed = 0;
 
@@ -256,14 +256,14 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(100)]
+  [AbortAfter(100)]
   [SuppressMessage("ReSharper",
                    "AccessToModifiedClosure")]
-  public async Task DelayedReturnDisposeShouldSucceed([Values] bool    asyncDisposable,
-                                                      [Values] bool    asyncDispose,
-                                                      [Values] bool    asyncFactory,
-                                                      [Values] Project project,
-                                                      [Values] Project projectGet)
+  public async Task DelayedReturnDispose([Values] bool    asyncDisposable,
+                                         [Values] bool    asyncDispose,
+                                         [Values] bool    asyncFactory,
+                                         [Values] Project project,
+                                         [Values] Project projectGet)
   {
     var nbDisposed = 0;
 
@@ -352,18 +352,18 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(1000)]
-  public async Task MaxLimitShouldSucceed([Values(null,
-                                                  -1,
-                                                  1,
-                                                  4)]
-                                          int? max,
-                                          [Values] bool      asyncFactory,
-                                          [Values] UseMethod useMethod,
-                                          [Values] bool      asyncUse,
-                                          [Values] bool      asyncContext,
-                                          [Values] Project   project,
-                                          [Values] Project   projectGet)
+  [AbortAfter(1000)]
+  public async Task MaxLimit([Values(null,
+                                     -1,
+                                     1,
+                                     4)]
+                             int? max,
+                             [Values] bool      asyncFactory,
+                             [Values] UseMethod useMethod,
+                             [Values] bool      asyncUse,
+                             [Values] bool      asyncContext,
+                             [Values] Project   project,
+                             [Values] Project   projectGet)
   {
     // ReSharper disable AccessToDisposedClosure
     // ReSharper disable ConvertTypeCheckPatternToNullCheck
@@ -494,7 +494,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   public async Task AcquireCancellation([Values] bool    asyncFactory,
                                         [Values] Project project,
                                         [Values] Project projectGet)
@@ -590,7 +590,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(10000)]
+  [AbortAfter(10000)]
   public async Task CreateCancellation([Values] Project project)
   {
     var       nbCreated = 0;
@@ -623,7 +623,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   public async Task CreateFailure([Values] Project project)
   {
     var mustThrow = true;
@@ -655,7 +655,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(100)]
+  [AbortAfter(100)]
   public async Task ProjectDispose([Values] bool asyncProject,
                                    [Values] bool disposeOrder)
   {
@@ -732,7 +732,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(100)]
+  [AbortAfter(100)]
   public async Task ProjectFailure([Values] bool asyncProject,
                                    [Values] bool asyncGet,
                                    [Values] bool earlyFailure)
@@ -810,7 +810,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(100)]
+  [AbortAfter(100)]
   public async Task ReturnFailure([Values] Project project)
   {
     var nbCreated = 0;
@@ -851,7 +851,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   public async Task GuardFinalizer([Values] Project project,
                                    [Values] Project projectGet)
   {
@@ -894,7 +894,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   public async Task PoolFinalizer([Values] Project project)
   {
     var nbCreated  = 0;
@@ -942,7 +942,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(1000)]
+  [AbortAfter(1000)]
   public async Task Finalizer([Values] Project project,
                               [Values] Project projectGet)
   {
@@ -992,7 +992,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(100)]
+  [AbortAfter(100)]
   public async Task PoolDisposeWithGuardAlive([Values] bool    asyncDispose,
                                               [Values] Project project,
                                               [Values] Project projectGet)
@@ -1026,7 +1026,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(100)]
+  [AbortAfter(100)]
   public async Task PoolDisposeThrow([Values] bool    asyncDisposable,
                                      [Values] bool    asyncDispose,
                                      [Values] Project project)
@@ -1094,7 +1094,7 @@ public class ObjectPoolTest
   }
 
   [Test]
-  [Timeout(100)]
+  [AbortAfter(100)]
   public async Task ReturnDisposeThrow([Values] bool    asyncDisposable,
                                        [Values] bool    asyncDispose,
                                        [Values] Project project,
