@@ -16,8 +16,6 @@
 
 using System.Threading.Tasks;
 
-using ArmoniK.Utils.Diagnostics;
-
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Testing;
 using Microsoft.CodeAnalysis.Testing;
@@ -27,7 +25,7 @@ using NUnit.Framework;
 using System.Reflection;
 #endif
 
-namespace ArmoniK.Utils.Tests;
+namespace ArmoniK.Utils.Diagnostics.Tests;
 
 public class CollectionAnalyzerTests
 {
