@@ -21,19 +21,31 @@ namespace ArmoniK.Utils.DocExtractor.Tests;
 [TestFixture]
 public class MarkdownDocGeneratorTests
 {
-  private string tempSolutionPath_;
-
   [SetUp]
   public void Setup()
   {
     // Create a temporary solution path
-    tempSolutionPath_ = Path.Combine(Path.GetTempPath(), "TempSolution.sln");
+    tempSolutionPath_ = Path.Combine(Path.GetTempPath(),
+                                     "TempSolution.sln");
     CreateTemporarySolution(tempSolutionPath_);
   }
+
+  [TearDown]
+  public void TearDown()
+  {
+    if (File.Exists(tempSolutionPath_))
+    {
+      File.Delete(tempSolutionPath_);
+    }
+  }
+
+  private string tempSolutionPath_;
+
   private static void CreateTemporarySolution(string solutionPath)
   {
     // Create a temporary project with two classes decorated with the ExtractDocumentation attribute
-    var projectPath = Path.Combine(Path.GetDirectoryName(solutionPath) ?? string.Empty, "TempProject.csproj");
+    var projectPath = Path.Combine(Path.GetDirectoryName(solutionPath) ?? string.Empty,
+                                   "TempProject.csproj");
     const string classCode = """
                         using System;
 
@@ -67,7 +79,8 @@ public class MarkdownDocGeneratorTests
                         """;
 
     // Write the project file and class file
-    File.WriteAllText(projectPath, """
+    File.WriteAllText(projectPath,
+                      """
 
                                                <Project Sdk="Microsoft.NET.Sdk">
                                                    <PropertyGroup>
@@ -77,33 +90,28 @@ public class MarkdownDocGeneratorTests
                                                </Project>
                                    """);
 
-    var classFilePath = Path.Combine(Path.GetDirectoryName(projectPath) ?? string.Empty, "TestClass.cs");
-    File.WriteAllText(classFilePath, classCode);
+    var classFilePath = Path.Combine(Path.GetDirectoryName(projectPath) ?? string.Empty,
+                                     "TestClass.cs");
+    File.WriteAllText(classFilePath,
+                      classCode);
 
     // Create the solution file
-    File.WriteAllText(solutionPath, $"Microsoft Visual Studio Solution File, Format Version 12.00\nProject(\"{{GUID}}\") = \"TempProject\", \"TempProject.csproj\", \"{{GUID}}\"\nEndProject\n");
-  }
-
-  [TearDown]
-  public void TearDown()
-  {
-    if (File.Exists(tempSolutionPath_))
-    {
-      File.Delete(tempSolutionPath_);
-    }
+    File.WriteAllText(solutionPath,
+                      "Microsoft Visual Studio Solution File, Format Version 12.00\nProject(\"{GUID}\") = \"TempProject\", \"TempProject.csproj\", \"{GUID}\"\nEndProject\n");
   }
 
   [Test]
   public Task CreateAsyncInvalidSolutionPathThrows()
   {
     const string solutionPath = "path/to/invalid/solution.sln";
-    var exception = Assert.ThrowsAsync<FileNotFoundException>(
-                                                              () => MarkdownDocGenerator.CreateAsync(solutionPath));
+    var          exception    = Assert.ThrowsAsync<FileNotFoundException>(() => MarkdownDocGenerator.CreateAsync(solutionPath));
     Assert.Multiple(() =>
-    {
-      Assert.That(exception.Message, Is.EqualTo("Solution file not found"));
-      Assert.That(exception.FileName, Is.EqualTo(solutionPath));
-    });
+                    {
+                      Assert.That(exception.Message,
+                                  Is.EqualTo("Solution file not found"));
+                      Assert.That(exception.FileName,
+                                  Is.EqualTo(solutionPath));
+                    });
     return Task.CompletedTask;
   }
 
@@ -113,11 +121,17 @@ public class MarkdownDocGeneratorTests
     var generator = await MarkdownDocGenerator.CreateAsync(tempSolutionPath_);
     var markdown  = generator.Generate();
 
-    Assert.That(markdown, Does.Contain("## Options for Awesome Class"));
-    Assert.That(markdown, Does.Contain("**AwesomeClass__Help**: [HelperClass](#options-for-helper-class)"));
-    Assert.That(markdown, Does.Contain("This is a nested property example"));
-    Assert.That(markdown, Does.Contain("## Options for Helper Class"));
-    Assert.That(markdown, Does.Contain("This is a test property"));
-    Assert.That(markdown, Does.Contain("This is another test property"));
+    Assert.That(markdown,
+                Does.Contain("## Options for Awesome Class"));
+    Assert.That(markdown,
+                Does.Contain("**AwesomeClass__Help**: [HelperClass](#options-for-helper-class)"));
+    Assert.That(markdown,
+                Does.Contain("This is a nested property example"));
+    Assert.That(markdown,
+                Does.Contain("## Options for Helper Class"));
+    Assert.That(markdown,
+                Does.Contain("This is a test property"));
+    Assert.That(markdown,
+                Does.Contain("This is another test property"));
   }
 }
