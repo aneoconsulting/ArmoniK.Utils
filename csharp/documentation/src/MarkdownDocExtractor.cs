@@ -26,46 +26,110 @@ namespace ArmoniK.Utils.DocExtractor;
 /// Utility class to generate Markdown documentation from C# source code
 /// by extracting classes annotated with the <c>ExtractDocumentation</c> attribute.
 /// </summary>
-public abstract class MarkdownDocGenerator
+public class MarkdownDocGenerator
 {
-    /// <summary>
-    /// Parses the given solution file and generates a Markdown string
+  private readonly Dictionary<string, string?> classDocSections_;
+  private readonly List<SyntaxNode>            syntaxRootNodes_;
+
+  /// <summary>
+  /// Initializes a new instance of the <see cref="MarkdownDocGenerator"/> class.
+  /// </summary>
+  /// <param name="syntaxRootNodes">A list of syntax root nodes representing the structure of the code
+  /// extracted from the solution's documents.</param>
+  /// <param name="classDocSections">A dictionary mapping class names to their corresponding documentation
+  /// section identifiers, which are used for generating Markdown links.</param>
+  private MarkdownDocGenerator(List<SyntaxNode>          syntaxRootNodes,
+                               Dictionary<string, string?> classDocSections
+                               )
+  {
+    syntaxRootNodes_   = syntaxRootNodes;
+    classDocSections_  = classDocSections;
+  }
+
+  /// <summary>
+  /// Asynchronously creates an instance of <see cref="MarkdownDocGenerator"/> by opening a solution file,
+  /// collecting syntax root nodes, and extracting documentation descriptions from classes decorated with
+  /// the <c>ExtractDocumentation</c> attribute.
+  /// </summary>
+  /// <param name="solutionPath">The file path to the solution (.sln) file.</param>
+  /// <returns>A task that represents the asynchronous operation. The task result contains an instance of
+  /// <see cref="MarkdownDocGenerator"/> initialized with the collected syntax root nodes and class documentation sections.</returns>
+  /// <exception cref="FileNotFoundException">Thrown when the specified solution file does not exist.</exception>
+  /// <remarks>
+  /// This method uses <see cref="MSBuildWorkspace"/> to open the solution and retrieve its projects and documents.
+  /// It iterates through each document, extracting the syntax tree and collecting all class declarations that
+  /// have the <c>ExtractDocumentation</c> attribute. The descriptions from these classes are stored in a
+  /// dictionary for later use in generating Markdown documentation in case a public property of a class is another
+  /// class that has to be collected as well.
+  /// </remarks>
+  public static async Task<MarkdownDocGenerator> CreateAsync(string solutionPath)
+  {
+    if (!File.Exists(solutionPath))
+    {
+      throw new FileNotFoundException("Solution file not found", solutionPath);
+    }
+
+    using var workspace = MSBuildWorkspace.Create();
+    var       solution  = await workspace.OpenSolutionAsync(solutionPath);
+
+    var syntaxRootNodes = new List<SyntaxNode>();
+    var classDocSections = new Dictionary<string, string?>();
+
+    // Collect all syntax root nodes and descriptions from each decorated class
+    foreach (var project in solution.Projects)
+    {
+      foreach (var document in project.Documents)
+      {
+        var syntaxTree = await document.GetSyntaxTreeAsync().ConfigureAwait(false);
+        if (syntaxTree == null)
+        {
+          continue;
+        }
+
+        var root = await syntaxTree.GetRootAsync().ConfigureAwait(false);
+        syntaxRootNodes.Add(root);
+
+        var classes = root.DescendantNodes()
+                          .OfType<ClassDeclarationSyntax>()
+                          .Where(c => c.AttributeLists
+                                       .SelectMany(a => a.Attributes)
+                                       .Any(attr => attr.Name.ToString() == "ExtractDocumentation"));
+
+        // Collect documentation descriptions from all classes in all projects
+        foreach (var classDeclaration in classes)
+        {
+          var extractDocumentationAttribute = classDeclaration.AttributeLists
+                                                              .SelectMany(a => a.Attributes)
+                                                              .FirstOrDefault(attr => attr.Name.ToString() == "ExtractDocumentation");
+
+          var description = extractDocumentationAttribute?.ArgumentList?.Arguments
+                                                         .FirstOrDefault()?.ToString().Trim('"');
+
+          // Add this class to tracking dictionary and build a Markdown link to it
+          classDocSections[classDeclaration.Identifier.Text] = description?.ToLower().Replace(" ","-");
+        }
+      }
+    }
+
+    return new MarkdownDocGenerator(syntaxRootNodes, classDocSections);
+  }
+
+  /// <summary>
+    /// Generates a Markdown string
     /// documenting all classes with the <c>[ExtractDocumentation]</c> attribute
     /// and their properties.
     /// </summary>
-    /// <param name="solutionPath">Path to the .sln file.</param>
     /// <returns>
     /// A Markdown-formatted string with environment variable documentation,
-    /// or <c>null</c> if the solution file does not exist.
     /// </returns>
-    public static async Task<string?> GenerateAsync(string solutionPath)
+    public string? Generate()
     {
-        if (!File.Exists(solutionPath))
-        {
-          return null;
-        }
-
-        using var workspace = MSBuildWorkspace.Create();
-        var solution = await workspace.OpenSolutionAsync(solutionPath).ConfigureAwait(false);
-
         var markdownBuilder = new StringBuilder();
-
-        foreach (var project in solution.Projects)
+        foreach (var root in syntaxRootNodes_)
         {
-            foreach (var document in project.Documents)
-            {
-                var syntaxTree = await document.GetSyntaxTreeAsync().ConfigureAwait(false);
-                if (syntaxTree == null)
-                {
-                  continue;
-                }
-
-                var root = await syntaxTree.GetRootAsync().ConfigureAwait(false);
-                var markdown = GenerateFromSyntaxRoot(root);
-                markdownBuilder.Append(markdown);
-            }
+            var markdown = GenerateFromSyntaxRoot(root);
+            markdownBuilder.Append(markdown);
         }
-
         return markdownBuilder.ToString();
     }
 
@@ -75,7 +139,7 @@ public abstract class MarkdownDocGenerator
     /// </summary>
     /// <param name="root">The root syntax node of the document.</param>
     /// <returns>A Markdown string documenting the class and its public properties.</returns>
-    public static string GenerateFromSyntaxRoot(SyntaxNode root)
+    private string GenerateFromSyntaxRoot(SyntaxNode root)
     {
         var markdownBuilder = new StringBuilder();
 
@@ -115,7 +179,16 @@ public abstract class MarkdownDocGenerator
 
                 var envVar = $"{classDeclaration.Identifier.Text}__{name}";
 
-                markdownBuilder.AppendLine($"- **{envVar}**: {type}");
+                // Check if the property type is a class with documentation
+                if (classDocSections_.TryGetValue(type, out var desc))
+                {
+                  markdownBuilder.AppendLine($"- **{envVar}**: [{type}](#{desc})");
+                }
+                else
+                {
+                  markdownBuilder.AppendLine($"- **{envVar}**: {type}");
+                }
+
                 if (!string.IsNullOrEmpty(summary))
                 {
                     markdownBuilder.AppendLine($"\n{summary}");
