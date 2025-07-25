@@ -28,19 +28,9 @@ internal abstract class Program
 
     var solutionPath = args[0];
 
-    if (!File.Exists(solutionPath))
-    {
-      Console.WriteLine($"Given solution file {solutionPath} does not exist.");
-      return;
-    }
+    var generator = await MarkdownDocGenerator.CreateAsync(solutionPath);
 
-    var markdown  = await MarkdownDocGenerator.GenerateAsync(solutionPath);
-
-    if (markdown is null)
-    {
-      Console.WriteLine($"Failed to load solution from path: {solutionPath}");
-      return;
-    }
+    var markdown  = generator.Generate();
 
     var outputFileName = Path.GetFileNameWithoutExtension(solutionPath) + ".EnvVars.md";
     await File.WriteAllTextAsync(outputFileName,

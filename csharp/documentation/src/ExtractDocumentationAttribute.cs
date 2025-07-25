@@ -26,9 +26,17 @@ public class ExtractDocumentationAttribute : Attribute
   /// <summary>
   ///   Initializes a new instance of the <see cref="ExtractDocumentationAttribute" /> class.
   /// </summary>
-  /// <param name="description">An optional description for the attribute, providing context about the class.</param>
-  public ExtractDocumentationAttribute(string description = "")
-    => Description = description;
+  /// <param name="description">A description for the attribute, providing context about the class. Must not be empty.</param>
+  /// <exception cref="ArgumentException">Thrown when the description is an empty string.</exception>
+  public ExtractDocumentationAttribute(string description)
+  {
+    if (string.IsNullOrWhiteSpace(description))
+    {
+      throw new ArgumentException("Description must not be empty.", nameof(description));
+    }
+
+    Description = description;
+  }
 
   /// <summary>
   ///   Gets the description of the attribute.
