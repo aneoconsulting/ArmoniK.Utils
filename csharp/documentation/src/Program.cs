@@ -30,7 +30,7 @@ internal abstract class Program
 
     var generator = await MarkdownDocGenerator.CreateAsync(solutionPath);
 
-    var markdown  = generator.Generate();
+    var markdown = generator.Generate();
 
     var outputFileName = Path.GetFileNameWithoutExtension(solutionPath) + ".EnvVars.md";
     await File.WriteAllTextAsync(outputFileName,

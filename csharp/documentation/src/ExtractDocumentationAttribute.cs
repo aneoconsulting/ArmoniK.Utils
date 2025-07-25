@@ -32,7 +32,8 @@ public class ExtractDocumentationAttribute : Attribute
   {
     if (string.IsNullOrWhiteSpace(description))
     {
-      throw new ArgumentException("Description must not be empty.", nameof(description));
+      throw new ArgumentException("Description must not be empty.",
+                                  nameof(description));
     }
 
     Description = description;
