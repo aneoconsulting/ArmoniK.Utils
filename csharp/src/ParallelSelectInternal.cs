@@ -1,6 +1,6 @@
 // This file is part of the ArmoniK project
 //
-// Copyright (C) ANEO, 2022-2023.All rights reserved.
+// Copyright (C) ANEO, 2022-2025. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
@@ -65,8 +65,6 @@ internal static class ParallelSelectInternal
     {
       try
       {
-        var runningTasks = new List<Task>();
-
         await foreach (var x in enumerable.WithCancellation(iterationCts.Token))
         {
           await sem.WaitAsync(iterationCts.Token)
@@ -90,15 +88,10 @@ internal static class ParallelSelectInternal
                               },
                               globalCts.Token);
 
-          runningTasks.Add(task);
-
           await channel.Writer.WriteAsync(task,
                                           globalCts.Token)
                        .ConfigureAwait(false);
         }
-
-        await runningTasks.WhenAll()
-                          .ConfigureAwait(false);
       }
       finally
       {
@@ -144,6 +137,7 @@ internal static class ParallelSelectInternal
 
     // Semaphore to limit the parallelism
     using var sem = new SemaphoreSlim(parallelism);
+    var       tcs = new TaskCompletionSource<ValueTuple>();
 
     [SuppressMessage("ReSharper",
                      "PossibleMultipleEnumeration")]
@@ -151,55 +145,75 @@ internal static class ParallelSelectInternal
                      "AccessToDisposedClosure")]
     async Task Run()
     {
+      var nbRef = 1;
+
       try
       {
-        var runningTasks = new List<Task>();
-
         await foreach (var x in enumerable.WithCancellation(iterationCts.Token))
         {
           await sem.WaitAsync(iterationCts.Token)
                    .ConfigureAwait(false);
-          var task = Task.Run(async () =>
-                              {
-                                TOutput res;
-                                try
-                                {
-                                  res = await func(x)
-                                          .ConfigureAwait(false);
-                                }
-                                catch
-                                {
-                                  iterationCts.Cancel();
-                                  throw;
-                                }
 
-                                sem.Release();
-                                await channel.Writer.WriteAsync(res,
-                                                                iterationCts.Token)
-                                             .ConfigureAwait(false);
-                              },
-                              globalCts.Token);
+          // Increment reference counter *before* starting the task
+          // to avoid counter going to zero before being incremented
+          Interlocked.Increment(ref nbRef);
+          _ = Task.Run(async () =>
+                       {
+                         TOutput res;
+                         try
+                         {
+                           res = await func(x)
+                                   .ConfigureAwait(false);
+                         }
+                         catch (Exception e)
+                         {
+                           // Forward the error and close the channel
+                           tcs.TrySetException(e);
+                           channel.Writer.Complete();
+                           iterationCts.Cancel();
+                           return;
+                         }
 
-          runningTasks.Add(task);
+                         sem.Release();
+                         await channel.Writer.WriteAsync(res,
+                                                         iterationCts.Token)
+                                      .ConfigureAwait(false);
+
+                         // ReSharper disable once AccessToModifiedClosure
+                         // Close channel if there is no more reference to the channel
+                         if (Interlocked.Decrement(ref nbRef) == 0)
+                         {
+                           tcs.TrySetResult(new ValueTuple());
+                           channel.Writer.Complete();
+                         }
+                       },
+                       globalCts.Token);
         }
 
-        await runningTasks.WhenAll()
-                          .ConfigureAwait(false);
+        // Close channel if there is no more reference to the channel
+        if (Interlocked.Decrement(ref nbRef) == 0)
+        {
+          tcs.TrySetResult(new ValueTuple());
+          channel.Writer.Complete();
+        }
       }
-      finally
+      catch (Exception e)
       {
+        // Forward the error and close the channel
+        tcs.TrySetException(e);
         channel.Writer.Complete();
+        iterationCts.Cancel();
       }
     }
 
-    var run = Task.Run(Run,
-                       globalCts.Token);
+    _ = Task.Run(Run,
+                 globalCts.Token);
 
     await foreach (var res in channel.Reader.ToAsyncEnumerable(globalCts.Token))
     {
       yield return res;
     }
 
-    await run.ConfigureAwait(false);
+    await tcs.Task.ConfigureAwait(false);
   }
 }
