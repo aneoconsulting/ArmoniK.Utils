@@ -83,7 +83,6 @@ internal static class ParallelSelectInternal
                                   throw;
                                 }
 
-                                sem.Release();
                                 return res;
                               },
                               globalCts.Token);
@@ -102,9 +101,13 @@ internal static class ParallelSelectInternal
     var run = Task.Run(Run,
                        globalCts.Token);
 
-    await foreach (var res in channel.Reader.ToAsyncEnumerable(globalCts.Token))
+    await foreach (var task in channel.Reader.ToAsyncEnumerable(globalCts.Token))
     {
-      yield return await res.ConfigureAwait(false);
+      var res = await task.ConfigureAwait(false);
+
+      sem.Release();
+
+      yield return res;
     }
 
     await run.ConfigureAwait(false);
@@ -174,7 +177,6 @@ internal static class ParallelSelectInternal
                            return;
                          }
 
-                         sem.Release();
                          await channel.Writer.WriteAsync(res,
                                                          iterationCts.Token)
                                       .ConfigureAwait(false);
@@ -211,6 +213,7 @@ internal static class ParallelSelectInternal
 
     await foreach (var res in channel.Reader.ToAsyncEnumerable(globalCts.Token))
     {
+      sem.Release();
       yield return res;
     }
 
