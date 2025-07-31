@@ -394,6 +394,53 @@ public class ParallelSelectExtTest
                 Is.Zero);
   }
 
+  [Test]
+  [AbortAfter(10000)]
+  public async Task CheckReferenceLiveness([Values] bool useAsync,
+                                           [Values] bool unordered)
+  {
+    var weakRefs = new WeakReference?[100];
+
+    async Task<object> F(int i)
+    {
+      var x = new object();
+      weakRefs[i] = new WeakReference(x);
+      await Task.Yield();
+      return x;
+    }
+
+    var enumerable = GenerateAndSelect(useAsync,
+                                       unordered,
+                                       10,
+                                       null,
+                                       100,
+                                       F);
+
+    await using var enumerator = enumerable.GetAsyncEnumerator(CancellationToken.None);
+
+    for (var i = 0; i < 50; ++i)
+    {
+      await enumerator.MoveNextAsync()
+                      .ConfigureAwait(false);
+    }
+
+    GC.Collect();
+
+    var x = weakRefs.Select(x => x?.IsAlive)
+                    .ToArray();
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(x.Take(50),
+                                  Is.All.False);
+                      Assert.That(x.Skip(50)
+                                   .Take(10),
+                                  Is.All.True);
+                      Assert.That(x.Skip(60),
+                                  Is.All.Null);
+                    });
+  }
+
 
   [Test]
   [AbortAfter(10000)]
