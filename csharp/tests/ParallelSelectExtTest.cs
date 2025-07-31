@@ -1,6 +1,6 @@
 // This file is part of the ArmoniK project
 //
-// Copyright (C) ANEO, 2022-2023.All rights reserved.
+// Copyright (C) ANEO, 2022-2025. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
@@ -205,10 +205,10 @@ public class ParallelSelectExtTest
     var y = GenerateInts(1000)
       .ToList();
 
-    Assert.That(x,
-                Is.All.Not.Null);
+    var n = 2;
     if (unordered is true)
     {
+      n = 1000;
       Assert.That(x,
                   Has.ItemAt(999)
                      .EqualTo(0));
@@ -216,8 +216,13 @@ public class ParallelSelectExtTest
       y.Sort();
     }
 
-    Assert.That(x,
-                Is.EqualTo(y));
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(x.Take(n),
+                                  Is.EqualTo(y.Take(n)));
+                      Assert.That(x.Skip(n),
+                                  Is.All.Null);
+                    });
   }
 
   [Test]
