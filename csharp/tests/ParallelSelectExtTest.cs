@@ -399,14 +399,26 @@ public class ParallelSelectExtTest
   public async Task CheckReferenceLiveness([Values] bool useAsync,
                                            [Values] bool unordered)
   {
-    var weakRefs = new WeakReference?[100];
+    var weakRefs = new WeakReference[100];
+    var lockObj  = new object();
+    int index    = 0;
 
-    async Task<object> F(int i)
+    Task<object> F(int i)
     {
-      var x = new object();
-      weakRefs[i] = new WeakReference(x);
-      await Task.Yield();
-      return x;
+      object x = i;  // boxed int
+      if (unordered)
+      {
+        lock (lockObj)
+        {
+          weakRefs[index] = new WeakReference(x);
+          index++;
+        }
+      }
+      else
+      {
+        weakRefs[i] = new WeakReference(x);
+      }
+      return Task.FromResult(x);
     }
 
     var enumerable = GenerateAndSelect(useAsync,
@@ -423,7 +435,7 @@ public class ParallelSelectExtTest
       await enumerator.MoveNextAsync()
                       .ConfigureAwait(false);
     }
-
+    await Task.Yield();
     GC.Collect();
 
     var x = weakRefs.Select(x => x?.IsAlive)
@@ -431,11 +443,15 @@ public class ParallelSelectExtTest
 
     Assert.Multiple(() =>
                     {
-                      Assert.That(x.Take(50),
+                      // Already fetched results were unreferenced (then not alive)
+                      Assert.That(x.Take(49),
                                   Is.All.False);
-                      Assert.That(x.Skip(50)
-                                   .Take(10),
-                                  Is.All.True);
+                      // Some tasks queued a few more results (max 10), which are then still alive,
+                      // the subsequent ones are still null (functor not applied).
+                      Assert.That(x.Skip(49)
+                                   .Take(11),
+                                  Is.Not.False);
+                      // The functor was not applied to the remaining elements, then no result is referenced.
                       Assert.That(x.Skip(60),
                                   Is.All.Null);
                     });
