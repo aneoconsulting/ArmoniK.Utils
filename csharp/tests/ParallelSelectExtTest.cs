@@ -401,11 +401,11 @@ public class ParallelSelectExtTest
   {
     var weakRefs = new WeakReference[100];
     var lockObj  = new object();
-    int index    = 0;
+    var index    = 0;
 
     Task<object> F(int i)
     {
-      object x = i;  // boxed int
+      object x = i; // boxed int
       if (unordered)
       {
         lock (lockObj)
@@ -418,6 +418,7 @@ public class ParallelSelectExtTest
       {
         weakRefs[i] = new WeakReference(x);
       }
+
       return Task.FromResult(x);
     }
 
@@ -437,15 +438,17 @@ public class ParallelSelectExtTest
     }
 
     bool?[] x = null;
-    for (int i = 0; i < 10; i++)
+    for (var i = 0; i < 10; i++)
     {
-      // Fist iteration is normally enough, yet to be sure everything was released we may loop 10 times.
+      // Fist iteration is normally enough,
+      // yet to be sure everything was released properly we may loop up to 10 times.
       await Task.Yield();
       GC.Collect();
 
       x = weakRefs.Select(x => x?.IsAlive)
-                      .ToArray();
-      if (!x.Take(49).Contains(true))
+                  .ToArray();
+      if (!x.Take(49)
+            .Contains(true))
       {
         break;
       }
