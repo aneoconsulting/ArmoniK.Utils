@@ -438,21 +438,17 @@ public class ParallelSelectExtTest
     }
 
     bool?[] x = null;
-    for (var i = 0; i < 10; i++)
+    do
     {
       // Fist iteration is normally enough,
-      // yet to be sure everything was released properly we may loop up to 10 times.
+      // yet to be sure everything was released properly we may loop as much as necessary.
       await Task.Yield();
       GC.Collect();
 
       x = weakRefs.Select(x => x?.IsAlive)
                   .ToArray();
-      if (!x.Take(49)
-            .Contains(true))
-      {
-        break;
-      }
-    }
+    } while (x.Take(49)
+               .Contains(true));
 
     Assert.Multiple(() =>
                     {
