@@ -435,11 +435,21 @@ public class ParallelSelectExtTest
       await enumerator.MoveNextAsync()
                       .ConfigureAwait(false);
     }
-    await Task.Yield();
-    GC.Collect();
 
-    var x = weakRefs.Select(x => x?.IsAlive)
-                    .ToArray();
+    bool?[] x = null;
+    for (int i = 0; i < 10; i++)
+    {
+      // Fist iteration is normally enough, yet to be sure everything was released we may loop 10 times.
+      await Task.Yield();
+      GC.Collect();
+
+      x = weakRefs.Select(x => x?.IsAlive)
+                      .ToArray();
+      if (!x.Take(49).Contains(true))
+      {
+        break;
+      }
+    }
 
     Assert.Multiple(() =>
                     {
