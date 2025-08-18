@@ -26,10 +26,10 @@ public class Examples
   public void ToStars()
   {
     var test = new[]
-               {
-                 1,
-               }.AsICollection()
-                .AsICollection();
+      {
+        1,
+      }.AsICollection()
+       .AsICollection();
     var foo = test.AsICollection();
   }
 }
