@@ -395,29 +395,17 @@ public class ParallelSelectExtTest
   }
 
   [Test]
+  [Repeat(10)]
   [AbortAfter(10000)]
   public async Task CheckReferenceLiveness([Values] bool useAsync,
                                            [Values] bool unordered)
   {
-    var weakRefs = new WeakReference[100];
-    var lockObj  = new object();
-    var index    = 0;
+    var weakRefs = new WeakReference?[100];
 
     Task<object> F(int i)
     {
-      object x = i; // boxed int
-      if (unordered)
-      {
-        lock (lockObj)
-        {
-          weakRefs[index] = new WeakReference(x);
-          index++;
-        }
-      }
-      else
-      {
-        weakRefs[i] = new WeakReference(x);
-      }
+      object x = i;
+      weakRefs[i] = new WeakReference(x);
 
       return Task.FromResult(x);
     }
@@ -437,7 +425,7 @@ public class ParallelSelectExtTest
                       .ConfigureAwait(false);
     }
 
-    bool?[] x = null;
+    bool?[] weakRefsAlive;
     do
     {
       // Fist iteration is normally enough,
@@ -445,23 +433,33 @@ public class ParallelSelectExtTest
       await Task.Yield();
       GC.Collect();
 
-      x = weakRefs.Select(x => x?.IsAlive)
-                  .ToArray();
-    } while (x.Take(49)
-               .Contains(true));
+      weakRefsAlive = weakRefs.Select(weakRef => weakRef?.IsAlive)
+                              .ToArray();
+    } while (weakRefsAlive.Count(w => w is true) != 11 || weakRefsAlive.Count(w => w is false) != 49);
+
+    if (unordered)
+    {
+      weakRefsAlive = weakRefsAlive.OrderBy(alive => alive switch
+                                                     {
+                                                       null  => 2,
+                                                       false => 0,
+                                                       true  => 1,
+                                                     })
+                                   .ToArray();
+    }
 
     Assert.Multiple(() =>
                     {
                       // Already fetched results were unreferenced (then not alive)
-                      Assert.That(x.Take(49),
+                      Assert.That(weakRefsAlive.Take(49),
                                   Is.All.False);
                       // Some tasks queued a few more results (max 10), which are then still alive,
                       // the subsequent ones are still null (functor not applied).
-                      Assert.That(x.Skip(49)
-                                   .Take(11),
-                                  Is.Not.False);
+                      Assert.That(weakRefsAlive.Skip(49)
+                                               .Take(11),
+                                  Is.All.True);
                       // The functor was not applied to the remaining elements, then no result is referenced.
-                      Assert.That(x.Skip(60),
+                      Assert.That(weakRefsAlive.Skip(60),
                                   Is.All.Null);
                     });
   }
