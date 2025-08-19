@@ -394,6 +394,76 @@ public class ParallelSelectExtTest
                 Is.Zero);
   }
 
+  [Test]
+  [Repeat(10)]
+  [AbortAfter(10000)]
+  public async Task CheckReferenceLiveness([Values] bool useAsync,
+                                           [Values] bool unordered)
+  {
+    var weakRefs = new WeakReference?[100];
+
+    Task<object> F(int i)
+    {
+      object x = i;
+      weakRefs[i] = new WeakReference(x);
+
+      return Task.FromResult(x);
+    }
+
+    var enumerable = GenerateAndSelect(useAsync,
+                                       unordered,
+                                       10,
+                                       null,
+                                       100,
+                                       F);
+
+    await using var enumerator = enumerable.GetAsyncEnumerator(CancellationToken.None);
+
+    for (var i = 0; i < 50; ++i)
+    {
+      await enumerator.MoveNextAsync()
+                      .ConfigureAwait(false);
+    }
+
+    bool?[] weakRefsAlive;
+    do
+    {
+      // Fist iteration is normally enough,
+      // yet to be sure everything was released properly we may loop as much as necessary.
+      await Task.Yield();
+      GC.Collect();
+
+      weakRefsAlive = weakRefs.Select(weakRef => weakRef?.IsAlive)
+                              .ToArray();
+    } while (weakRefsAlive.Count(w => w is true) != 11 || weakRefsAlive.Count(w => w is false) != 49);
+
+    if (unordered)
+    {
+      weakRefsAlive = weakRefsAlive.OrderBy(alive => alive switch
+                                                     {
+                                                       null  => 2,
+                                                       false => 0,
+                                                       true  => 1,
+                                                     })
+                                   .ToArray();
+    }
+
+    Assert.Multiple(() =>
+                    {
+                      // Already fetched results were unreferenced (then not alive)
+                      Assert.That(weakRefsAlive.Take(49),
+                                  Is.All.False);
+                      // Some tasks queued a few more results (max 10), which are then still alive,
+                      // the subsequent ones are still null (functor not applied).
+                      Assert.That(weakRefsAlive.Skip(49)
+                                               .Take(11),
+                                  Is.All.True);
+                      // The functor was not applied to the remaining elements, then no result is referenced.
+                      Assert.That(weakRefsAlive.Skip(60),
+                                  Is.All.Null);
+                    });
+  }
+
 
   [Test]
   [AbortAfter(10000)]
