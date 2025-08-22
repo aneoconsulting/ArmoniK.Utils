@@ -32,7 +32,7 @@ jobs:
         echo "current-branch=$CURRENT_BRANCH"
     - name: Generate Snapshot Version
       id: snapshot
-      uses: codacy/git-version@0a24493a8bcb2591b89d7dfa85fbc37c09071f88 # 2.8.4
+      uses: codacy/git-version@877bb11b7a2ee44dcd7c0a03882c7037356e64e9 # 2.8.6
       with:
         minor-identifier: "feat:"
         release-branch: ${{ github.ref_name }}-pre
@@ -40,7 +40,7 @@ jobs:
 
     - name: Generate Release Version
       id: release
-      uses: codacy/git-version@0a24493a8bcb2591b89d7dfa85fbc37c09071f88 # 2.8.4
+      uses: codacy/git-version@877bb11b7a2ee44dcd7c0a03882c7037356e64e9 # 2.8.6
       with:
         minor-identifier: "feat:"
         release-branch: ${{ steps.rev.outputs.current-branch }}
