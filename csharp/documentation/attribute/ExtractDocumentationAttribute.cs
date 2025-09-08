@@ -1,4 +1,4 @@
-// This file is part of the ArmoniK project
+﻿// This file is part of the ArmoniK project
 //
 // Copyright (C) ANEO, 2022-$CURRENT_YEAR.All rights reserved.
 //
@@ -14,7 +14,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-namespace ArmoniK.Utils.DocExtractor;
+using System;
+
+namespace ArmoniK.Utils.DocAttribute;
 
 /// <summary>
 ///   Indicates that a class should have its property documentation collected.
