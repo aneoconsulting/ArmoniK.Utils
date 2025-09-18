@@ -115,7 +115,7 @@ jobs:
     - name: Run tests
       working-directory: csharp
       run: |
-        dotnet test -filter "FullyQualifiedName!~ArmoniK.Utils.DocExtractor" --runtime ${{ matrix.platform.runtime }} -f ${{ matrix.dotnet.framework }} --logger "trx;LogFileName=test-results.trx"
+        dotnet test --filter FullyQualifiedName\!~DocExtractor --runtime ${{ matrix.platform.runtime }} -f ${{ matrix.dotnet.framework }} --logger "trx;LogFileName=test-results.trx"
 
     - name: Test Report
       uses: dorny/test-reporter@dc3a92680fcc15842eef52e8c4606ea7ce6bd3f3 # v2
@@ -124,7 +124,8 @@ jobs:
         name: IntegrationTests ${{ matrix.platform.runtime }} ${{ matrix.dotnet.framework }}
         path: ./csharp/tests/TestResults/test-results.trx
         reporter: dotnet-trx
-extract-doc:
+
+ extract-doc:
     needs:
       - build
     runs-on: ubuntu-latest
@@ -140,7 +141,7 @@ extract-doc:
     - name: Run tests
       working-directory: csharp
       run: |
-        dotnet test --filter "FullyQualifiedName=ArmoniK.Utils.DocExtractor" --runtime linux-x64 -f net8.0 --logger "trx;LogFileName=test-results.trx"
+        dotnet test --filter FullyQualifiedName\~DocExtractor --runtime linux-x64 -f net8.0 --logger "trx;LogFileName=test-results.trx"
 
     - name: Test Report
       uses: dorny/test-reporter@dc3a92680fcc15842eef52e8c4606ea7ce6bd3f3 # v2
