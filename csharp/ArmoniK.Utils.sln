@@ -8,11 +8,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Utils.Diagnostics",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Utils.Diagnostics.Sample", "diagnostics.sample\ArmoniK.Utils.Diagnostics.Sample.csproj", "{720DB760-D7A2-4DD1-B0EB-2A36AB60F088}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Utils.DocExtractor", "documentation/extraction\src\ArmoniK.Utils.DocExtractor.csproj", "{58B3E53E-98A7-45DF-BEFF-3813D18DD788}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Utils.DocExtractor", "documentation.extraction\src\ArmoniK.Utils.DocExtractor.csproj", "{58B3E53E-98A7-45DF-BEFF-3813D18DD788}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Utils.DocExtractor.Tests", "documentation\extraction\tests\ArmoniK.Utils.DocExtractor.Tests.csproj", "{28867143-0E8E-4292-8DC4-B6BD9B3BBD7B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Utils.DocExtractor.Tests", "documentation.extraction\tests\ArmoniK.Utils.DocExtractor.Tests.csproj", "{28867143-0E8E-4292-8DC4-B6BD9B3BBD7B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Utils.DocAttribute", "documentation/attribute/ArmoniK.Utils.DocAttribute.csproj", "{6874D005-EF74-460D-B904-B464D0411C42}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Utils.DocAttribute", "documentation.attribute/ArmoniK.Utils.DocAttribute.csproj", "{6874D005-EF74-460D-B904-B464D0411C42}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
