@@ -141,12 +141,12 @@ jobs:
     - name: Run tests
       working-directory: csharp
       run: |
-        dotnet test --filter FullyQualifiedName\~DocExtractor --runtime linux-x64 -f net8.0 --logger "trx;LogFileName=test-results.trx"
+        dotnet test --filter FullyQualifiedName\~DocExtractor --runtime linux-x64 -f net8.0 --logger "trx;LogFileName=extract-doc-test-results.trx"
 
     - name: Test Report
       uses: dorny/test-reporter@dc3a92680fcc15842eef52e8c4606ea7ce6bd3f3 # v2
       if: always()
       with:
-        name: IntegrationTests linux-x64 net8.0
-        path: ./csharp/tests/TestResults/test-results.trx
+        name: DocExtractionTests linux-x64 net8.0
+        path: ./csharp/tests/TestResults/extract-doc-test-results.trx
         reporter: dotnet-trx
