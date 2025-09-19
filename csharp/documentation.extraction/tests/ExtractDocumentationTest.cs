@@ -47,48 +47,48 @@ public class MarkdownDocGeneratorTests
     var projectPath = Path.Combine(Path.GetDirectoryName(solutionPath) ?? string.Empty,
                                    "TempProject.csproj");
     const string classCode = """
-                        using System;
+                             using System;
 
-                        [ExtractDocumentation("Options for Awesome Class")]
-                        public class AwesomeClass
-                        {
-                            /// <summary>
-                            /// This is a nested property example.
-                            /// </summary>
-                            public HelperClass Help { get; set; }
-                        }
+                             [ExtractDocumentation("Options for Awesome Class")]
+                             public class AwesomeClass
+                             {
+                                 /// <summary>
+                                 /// This is a nested property example.
+                                 /// </summary>
+                                 public HelperClass Help { get; set; }
+                             }
 
-                        [ExtractDocumentation("Options for Helper Class")]
-                        public class HelperClass
-                        {
-                            /// <summary>
-                            /// This is a test property
-                            /// </summary>
-                            public string Path { get; set; }
+                             [ExtractDocumentation("Options for Helper Class")]
+                             public class HelperClass
+                             {
+                                 /// <summary>
+                                 /// This is a test property
+                                 /// </summary>
+                                 public string Path { get; set; }
 
-                            /// <summary>
-                            /// This is another test property
-                            /// </summary>
-                            public int Port { get; set; }
-                        }
+                                 /// <summary>
+                                 /// This is another test property
+                                 /// </summary>
+                                 public int Port { get; set; }
+                             }
 
-                        public class ExtractDocumentationAttribute : Attribute
-                        {
-                            public ExtractDocumentationAttribute(string description) { }
-                        }
-                        """;
+                             public class ExtractDocumentationAttribute : Attribute
+                             {
+                                 public ExtractDocumentationAttribute(string description) { }
+                             }
+                             """;
 
     // Write the project file and class file
     File.WriteAllText(projectPath,
                       """
 
-                                               <Project Sdk="Microsoft.NET.Sdk">
-                                                   <PropertyGroup>
-                                                       <OutputType>Library</OutputType>
-                                                       <TargetFramework>net8.0</TargetFramework>
-                                                   </PropertyGroup>
-                                               </Project>
-                                   """);
+                                  <Project Sdk="Microsoft.NET.Sdk">
+                                      <PropertyGroup>
+                                          <OutputType>Library</OutputType>
+                                          <TargetFramework>net8.0</TargetFramework>
+                                      </PropertyGroup>
+                                  </Project>
+                      """);
 
     var classFilePath = Path.Combine(Path.GetDirectoryName(projectPath) ?? string.Empty,
                                      "TestClass.cs");
