@@ -130,12 +130,19 @@ public class MarkdownDocGenerator
   ///   documenting all classes with the <c>[ExtractDocumentation]</c> attribute
   ///   and their properties.
   /// </summary>
+  /// <param name="customTitle">The title to be given to the generated document.</param>
   /// <returns>
   ///   A Markdown-formatted string with environment variable documentation,
   /// </returns>
-  public string? Generate()
+  public string? Generate(string? customTitle = null)
   {
     var markdownBuilder = new StringBuilder();
+
+    if (customTitle != null)
+    {
+      markdownBuilder.AppendLine($"# {customTitle}");
+    }
+
     foreach (var root in syntaxRootNodes_)
     {
       var markdown = GenerateFromSyntaxRoot(root);
