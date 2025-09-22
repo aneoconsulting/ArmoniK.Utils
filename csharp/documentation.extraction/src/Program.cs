@@ -21,28 +21,33 @@ namespace ArmoniK.Utils.DocExtractor;
 // ReSharper disable once ClassNeverInstantiated.Global
 internal class Options
 {
-  [Option('s', "solutionPath", Required = true, HelpText = "Path to solution file")]
+  [Option('s',
+          "solutionPath",
+          Required = true,
+          HelpText = "Path to solution file")]
   public string? SolutionPath { get; set; }
 
-  [Option('t', "title", Required = false, HelpText = "Custom title for the extracted document")]
+  [Option('t',
+          "title",
+          Required = false,
+          HelpText = "Custom title for the extracted document")]
   public string? Title { get; set; }
 }
 
 internal abstract class Program
 {
   private static async Task Main(string[] args)
-  {
-    await Parser.Default.ParseArguments<Options>(args)
-               .WithParsedAsync(async o =>
-                                {
-                                  var generator        = await MarkdownDocGenerator.CreateAsync(o.SolutionPath!);
-                                  var solutionRootName = Path.GetFileNameWithoutExtension(o.SolutionPath!);
-                                  var customTitle= o.Title ?? $"Environment Variables exposed in {solutionRootName}";
-                                  var markdown  = generator.Generate(customTitle);
-                                  var outputFileName   = solutionRootName + ".EnvVars.md";
-                                  await File.WriteAllTextAsync(outputFileName,
-                                                               markdown);
-                                  Console.WriteLine($"Markdown file generated: {outputFileName}");
-                                }).ConfigureAwait(false);
-  }
+    => await Parser.Default.ParseArguments<Options>(args)
+                   .WithParsedAsync(async o =>
+                                    {
+                                      var generator        = await MarkdownDocGenerator.CreateAsync(o.SolutionPath!);
+                                      var solutionRootName = Path.GetFileNameWithoutExtension(o.SolutionPath!);
+                                      var customTitle      = o.Title ?? $"Environment Variables exposed in {solutionRootName}";
+                                      var markdown         = generator.Generate(customTitle);
+                                      var outputFileName   = solutionRootName + ".EnvVars.md";
+                                      await File.WriteAllTextAsync(outputFileName,
+                                                                   markdown);
+                                      Console.WriteLine($"Markdown file generated: {outputFileName}");
+                                    })
+                   .ConfigureAwait(false);
 }
