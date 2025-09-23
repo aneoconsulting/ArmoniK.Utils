@@ -6,6 +6,8 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <RootNamespace>ArmoniK.Utils.DocExtractor</RootNamespace>
+        <PackAsTool>true</PackAsTool>
+        <ToolCommandName>armonik.utils.docextractor</ToolCommandName>
     </PropertyGroup>
 
     <ItemGroup>
