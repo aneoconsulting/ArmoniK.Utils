@@ -84,7 +84,7 @@ jobs:
           - os: ubuntu-latest
             runtime: linux-x64
           - os: windows-latest
-            runtime: windows-x64
+            runtime: win-x64
         exclude:
           - dotnet:
               version: ""
