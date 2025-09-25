@@ -19,9 +19,9 @@ using System;
 namespace ArmoniK.Utils.DocAttribute;
 
 /// <summary>
-///   Indicates that a class should have its property documentation collected.
+///   Indicates that a class or enum should have its property documentation collected.
 /// </summary>
-[AttributeUsage(AttributeTargets.Class,
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Enum,
                 Inherited = false)]
 public class ExtractDocumentationAttribute : Attribute
 {
