@@ -45,8 +45,8 @@ public class MarkdownDocGenerator
   private MarkdownDocGenerator(List<SyntaxNode>            syntaxRootNodes,
                                Dictionary<string, string?> docSections)
   {
-    syntaxRootNodes_  = syntaxRootNodes;
-    docSections_ = docSections;
+    syntaxRootNodes_ = syntaxRootNodes;
+    docSections_     = docSections;
   }
 
   /// <summary>
@@ -79,8 +79,8 @@ public class MarkdownDocGenerator
     using var workspace = MSBuildWorkspace.Create();
     var       solution  = await workspace.OpenSolutionAsync(solutionPath);
 
-    var syntaxRootNodes  = new List<SyntaxNode>();
-    var docSections = new Dictionary<string, string?>();
+    var syntaxRootNodes = new List<SyntaxNode>();
+    var docSections     = new Dictionary<string, string?>();
 
     // Collect all syntax root nodes and descriptions from each decorated class
     foreach (var project in solution.Projects)
@@ -107,15 +107,18 @@ public class MarkdownDocGenerator
         // Collect documentation descriptions from all classes in all projects
         foreach (var decl in types)
         {
-          var description = GetAttributeDescription(decl, "ExtractDocumentation");
+          var description = GetAttributeDescription(decl,
+                                                    "ExtractDocumentation");
 
           // track name → description (used for Markdown anchors)
           docSections[decl switch
                       {
                         ClassDeclarationSyntax cls => cls.Identifier.Text,
                         EnumDeclarationSyntax en   => en.Identifier.Text,
-                        _                          => string.Empty
-                      }] = description?.ToLower()?.Replace(" ", "-");
+                        _                          => string.Empty,
+                      }] = description?.ToLower()
+                                      ?.Replace(" ",
+                                                "-");
         }
       }
     }
@@ -152,21 +155,21 @@ public class MarkdownDocGenerator
   }
 
   /// <summary>
-  /// Retrieves the description string from a specified attribute applied to a declaration.
+  ///   Retrieves the description string from a specified attribute applied to a declaration.
   /// </summary>
   /// <param name="decl">
-  /// The <see cref="MemberDeclarationSyntax"/> node (e.g., class or enum) to inspect.
+  ///   The <see cref="MemberDeclarationSyntax" /> node (e.g., class or enum) to inspect.
   /// </param>
   /// <param name="attributeName">
-  /// The name of the attribute to search for (without the "Attribute" suffix).
+  ///   The name of the attribute to search for (without the "Attribute" suffix).
   /// </param>
   /// <returns>
-  /// The attribute's first constructor argument as a trimmed string, or <c>null</c> if not found.
+  ///   The attribute's first constructor argument as a trimmed string, or <c>null</c> if not found.
   /// </returns>
-  private static string? GetAttributeDescription(MemberDeclarationSyntax decl, string attributeName)
+  private static string? GetAttributeDescription(MemberDeclarationSyntax decl,
+                                                 string                  attributeName)
   {
-    var attr = decl.AttributeLists
-                   .SelectMany(a => a.Attributes)
+    var attr = decl.AttributeLists.SelectMany(a => a.Attributes)
                    .FirstOrDefault(attr => attr.Name.ToString() == attributeName);
 
     return attr?.ArgumentList?.Arguments.FirstOrDefault()
@@ -175,14 +178,14 @@ public class MarkdownDocGenerator
   }
 
   /// <summary>
-  /// Extracts the XML documentation summary associated with a syntax node.
+  ///   Extracts the XML documentation summary associated with a syntax node.
   /// </summary>
   /// <param name="node">
-  /// The <see cref="SyntaxNode"/> to inspect (e.g., property, enum member).
+  ///   The <see cref="SyntaxNode" /> to inspect (e.g., property, enum member).
   /// </param>
   /// <returns>
-  /// The contents of the <c>&lt;summary&gt;</c> XML documentation element as plain text,
-  /// or <c>null</c> if no summary is found.
+  ///   The contents of the <c>&lt;summary&gt;</c> XML documentation element as plain text,
+  ///   or <c>null</c> if no summary is found.
   /// </returns>
   private static string? GetXmlSummary(SyntaxNode node)
   {
@@ -196,7 +199,8 @@ public class MarkdownDocGenerator
                             ?.Content.ToFullString()
                             .Trim();
 
-    return summary?.Replace("///", "");
+    return summary?.Replace("///",
+                            "");
   }
 
   /// <summary>
@@ -217,7 +221,8 @@ public class MarkdownDocGenerator
 
     foreach (var decl in types)
     {
-      var description = GetAttributeDescription(decl, "ExtractDocumentation");
+      var description = GetAttributeDescription(decl,
+                                                "ExtractDocumentation");
       markdownBuilder.AppendLine($"## {description}");
 
       switch (decl)
@@ -231,7 +236,8 @@ public class MarkdownDocGenerator
             var summary = GetXmlSummary(property);
             var envVar  = $"{classDecl.Identifier.Text}__{name}";
 
-            if (docSections_.TryGetValue(type, out var desc))
+            if (docSections_.TryGetValue(type,
+                                         out var desc))
             {
               markdownBuilder.AppendLine($"- **{envVar}**: [{type}](#{desc})");
             }
