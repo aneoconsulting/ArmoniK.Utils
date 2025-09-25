@@ -72,6 +72,20 @@ public class MarkdownDocGeneratorTests
                                  public int Port { get; set; }
                              }
 
+                             [ExtractDocumentation("Options for Enum")]
+                             public enum HelperEnum
+                             {
+                                 /// <summary>
+                                 /// This is a test member
+                                 /// </summary>
+                                 Member1
+
+                                 /// <summary>
+                                 /// This is another test member
+                                 /// </summary>
+                                 Member2
+                             }
+
                              public class ExtractDocumentationAttribute : Attribute
                              {
                                  public ExtractDocumentationAttribute(string description) { }
@@ -133,5 +147,11 @@ public class MarkdownDocGeneratorTests
                 Does.Contain("This is a test property"));
     Assert.That(markdown,
                 Does.Contain("This is another test property"));
+    Assert.That(markdown,
+                Does.Contain("Options for Enum"));
+    Assert.That(markdown,
+                Does.Contain(" This is a test member"));
+    Assert.That(markdown,
+                Does.Contain(" This is another test member"));
   }
 }
