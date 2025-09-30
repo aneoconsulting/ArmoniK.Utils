@@ -138,9 +138,9 @@ public class MarkdownDocGeneratorTests
     Assert.That(markdown,
                 Does.Contain("## Options for Awesome Class"));
     Assert.That(markdown,
-                Does.Contain("**AwesomeClass__Help**: [HelperClass](#options-for-helper-class)"));
+                Does.Contain("**AwesomeClass__[Help](#options-for-helper-class)__Path**: string"));
     Assert.That(markdown,
-                Does.Contain("This is a nested property example"));
+                Does.Contain("**AwesomeClass__[Help](#options-for-helper-class)__Port**: int"));
     Assert.That(markdown,
                 Does.Contain("## Options for Helper Class"));
     Assert.That(markdown,
