@@ -212,11 +212,28 @@ public class MarkdownDocGenerator
       return null;
     }
 
-    // Remove '///', trim lines, and add indentation
+    // Remove '///', trim lines
     var cleanSummary = string.Join("\n",
                               summary.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
                                      .Select(line => line.Replace("///", "").Trim()));
     return cleanSummary;
+  }
+
+
+  // Get the default value for common value types
+  private static string GetDefaultValueForType(string typeName)
+  {
+    return typeName switch
+           {
+             "int"     => "0",
+             "float"   => "0.0f",
+             "double"  => "0.0",
+             "bool"    => "false",
+             "string"  => "null",
+             "char"    => "'\\0'",
+             "decimal" => "0.0m",
+             _ => "null", // Default for reference types
+           };
   }
 
   /// <summary>
@@ -240,6 +257,15 @@ public class MarkdownDocGenerator
       var summary      = GetXmlSummary(property);
       var fullName     = $"{prefix}__{propertyName}";
 
+      var initializer = property.Initializer;
+
+      // Check if the default value is an ObjectCreationExpressionSyntax
+      var defaultValue = initializer?.Value.ToString() switch
+                         {
+                           "new()" => "()", // Display "()" instead of "new()" as default value
+                           _       => initializer?.Value.ToString() ?? GetDefaultValueForType(typeName)
+                         };
+
       // If the property is also a class, flatten its members recursively.
       if (docSections_.TryGetValue(typeName, out var desc))
       {
@@ -255,11 +281,10 @@ public class MarkdownDocGenerator
         }
       }
 
-      // This is a "leaf" property
-      builder.AppendLine($"- **{fullName}**: {typeName}");
+      builder.AppendLine($"- **{fullName}**: {typeName} (default: `{defaultValue}`)");
       if (!string.IsNullOrEmpty(summary))
       {
-        builder.AppendLine($"    {summary.Trim()}\n");
+        builder.AppendLine($"    {summary.Trim()}");
       }
     }
   }
@@ -297,7 +322,7 @@ public class MarkdownDocGenerator
 
             if (!string.IsNullOrEmpty(summary))
             {
-              markdownBuilder.AppendLine($"    {summary.Trim()}\n");
+              markdownBuilder.AppendLine($"    {summary.Trim()}");
             }
           }
 

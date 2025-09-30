@@ -64,7 +64,7 @@ public class MarkdownDocGeneratorTests
                                  /// <summary>
                                  /// This is a test property
                                  /// </summary>
-                                 public string Path { get; set; }
+                                 public string Path { get; set; } = "localhost"
 
                                  /// <summary>
                                  /// This is another test property
@@ -135,23 +135,33 @@ public class MarkdownDocGeneratorTests
     var generator = await MarkdownDocGenerator.CreateAsync(tempSolutionPath_);
     var markdown  = generator.Generate();
 
-    Assert.That(markdown,
-                Does.Contain("## Options for Awesome Class"));
-    Assert.That(markdown,
-                Does.Contain("**AwesomeClass__[Help](#options-for-helper-class)__Path**: string"));
-    Assert.That(markdown,
-                Does.Contain("**AwesomeClass__[Help](#options-for-helper-class)__Port**: int"));
-    Assert.That(markdown,
-                Does.Contain("## Options for Helper Class"));
-    Assert.That(markdown,
-                Does.Contain("This is a test property"));
-    Assert.That(markdown,
-                Does.Contain("This is another test property"));
-    Assert.That(markdown,
-                Does.Contain("Options for Enum"));
-    Assert.That(markdown,
-                Does.Contain(" This is a test member"));
-    Assert.That(markdown,
-                Does.Contain(" This is another test member"));
+    const string expected = """
+                            ## Options for Awesome Class
+                            - **AwesomeClass__[Help](#options-for-helper-class)__Path**: string (default: `"localhost"`)
+                                This is a test property
+                            - **AwesomeClass__[Help](#options-for-helper-class)__Port**: int (default: `0`)
+                                This is another test property
+
+                            ## Options for Helper Class
+                            - **HelperClass__Path**: string (default: `"localhost"`)
+                                This is a test property
+                            - **HelperClass__Port**: int (default: `0`)
+                                This is another test property
+
+                            ## Options for Enum
+                            - **Member1**
+                                This is a test member
+                            - **Member2**
+                                This is another test member
+
+                            """;
+
+    Assert.That(Normalize(markdown),
+                Is.EqualTo(Normalize(expected)));
   }
+
+  private static string Normalize(string? s)
+    => s?.Replace("\r\n",
+                  "\n")
+        .Trim() ?? "";
 }
