@@ -37,17 +37,17 @@ public class MarkdownDocGenerator
   /// <param name="syntaxTypes">
   ///   A dictionary of syntax root nodes representing the structure of the code
   ///   extracted from the solution's documents. The key is the class name and
-  ///   the value is the corresponding <see cref="MemberDeclarationSyntax"/>.
+  ///   the value is the corresponding <see cref="MemberDeclarationSyntax" />.
   /// </param>
   /// <param name="docSections">
   ///   A dictionary mapping class names to their corresponding documentation
   ///   section identifiers, which are used for generating Markdown links.
   /// </param>
-  private MarkdownDocGenerator(Dictionary<string, MemberDeclarationSyntax>  syntaxTypes,
-                               Dictionary<string, string?> docSections)
+  private MarkdownDocGenerator(Dictionary<string, MemberDeclarationSyntax> syntaxTypes,
+                               Dictionary<string, string?>                 docSections)
   {
-    syntaxTypes_  = syntaxTypes;
-    docSections_  = docSections;
+    syntaxTypes_ = syntaxTypes;
+    docSections_ = docSections;
   }
 
   /// <summary>
@@ -110,6 +110,7 @@ public class MarkdownDocGenerator
                                                 _                        => "",
                                               });
 
+        // Merge all member declaration syntax dictionaries in a global one for latter use.
         foreach (var type in types)
         {
           syntaxTypes[type.Key] = type.Value;
@@ -214,36 +215,39 @@ public class MarkdownDocGenerator
 
     // Remove '///', trim lines
     var cleanSummary = string.Join("\n",
-                              summary.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
-                                     .Select(line => line.Replace("///", "").Trim()));
+                                   summary.Split(['\r', '\n'],
+                                                 StringSplitOptions.RemoveEmptyEntries)
+                                          .Select(line => line.Replace("///",
+                                                                       "")
+                                                              .Trim()));
     return cleanSummary;
   }
 
 
   // Get the default value for common value types
   private static string GetDefaultValueForType(string typeName)
-  {
-    return typeName switch
-           {
-             "int"     => "0",
-             "float"   => "0.0f",
-             "double"  => "0.0",
-             "bool"    => "false",
-             "string"  => "null",
-             "char"    => "'\\0'",
-             "decimal" => "0.0m",
-             _ => "null", // Default for reference types
-           };
-  }
+    => typeName switch
+       {
+         "int"     => "0",
+         "float"   => "0.0f",
+         "double"  => "0.0",
+         "bool"    => "false",
+         "string"  => "null",
+         "char"    => "'\\0'",
+         "decimal" => "0.0m",
+         _         => "null", // Default for reference types
+       };
 
   /// <summary>
-  /// Iterates over all properties in the given class declaration and appends a flattened
-  /// representation of each one to the specified <see cref="StringBuilder"/>.
+  ///   Iterates over all properties in the given class declaration and appends a flattened
+  ///   representation of each one to the specified <see cref="StringBuilder" />.
   /// </summary>
   /// <param name="builder">The output buffer used to collect flattened property definitions.</param>
   /// <param name="classDecl">The class whose properties will be inspected.</param>
   /// <param name="prefix">The name prefix used to construct the flattened property path.</param>
-  private void FlattenProperties(StringBuilder builder, ClassDeclarationSyntax? classDecl, string prefix)
+  private void FlattenProperties(StringBuilder           builder,
+                                 ClassDeclarationSyntax? classDecl,
+                                 string                  prefix)
   {
     if (classDecl == null)
     {
@@ -263,11 +267,12 @@ public class MarkdownDocGenerator
       var defaultValue = initializer?.Value.ToString() switch
                          {
                            "new()" => "()", // Display "()" instead of "new()" as default value
-                           _       => initializer?.Value.ToString() ?? GetDefaultValueForType(typeName)
+                           _       => initializer?.Value.ToString() ?? GetDefaultValueForType(typeName),
                          };
 
       // If the property is also a class, flatten its members recursively.
-      if (docSections_.TryGetValue(typeName, out var desc))
+      if (docSections_.TryGetValue(typeName,
+                                   out var desc))
       {
         var nestedClass = syntaxTypes_!.GetValueOrDefault(typeName);
         if (nestedClass != null)
@@ -308,7 +313,9 @@ public class MarkdownDocGenerator
       {
         case ClassDeclarationSyntax classDecl:
         {
-          FlattenProperties(markdownBuilder, classDecl, classDecl.Identifier.Text);
+          FlattenProperties(markdownBuilder,
+                            classDecl,
+                            classDecl.Identifier.Text);
           break;
         }
         case EnumDeclarationSyntax enumDecl:
