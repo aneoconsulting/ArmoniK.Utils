@@ -28,7 +28,6 @@ namespace ArmoniK.Utils.DocExtractor;
 /// </summary>
 public class MarkdownDocGenerator
 {
-  private readonly Dictionary<string, string?>                 docSections_;
   private readonly Dictionary<string, MemberDeclarationSyntax> syntaxTypes_;
 
   /// <summary>
@@ -43,11 +42,9 @@ public class MarkdownDocGenerator
   ///   A dictionary mapping class names to their corresponding documentation
   ///   section identifiers, which are used for generating Markdown links.
   /// </param>
-  private MarkdownDocGenerator(Dictionary<string, MemberDeclarationSyntax> syntaxTypes,
-                               Dictionary<string, string?>                 docSections)
+  private MarkdownDocGenerator(Dictionary<string, MemberDeclarationSyntax> syntaxTypes)
   {
     syntaxTypes_ = syntaxTypes;
-    docSections_ = docSections;
   }
 
   /// <summary>
@@ -81,7 +78,6 @@ public class MarkdownDocGenerator
     var       solution  = await workspace.OpenSolutionAsync(solutionPath);
 
     var syntaxTypes = new Dictionary<string, MemberDeclarationSyntax>();
-    var docSections = new Dictionary<string, string?>();
 
     // Collect all syntax root nodes and descriptions from each decorated class
     foreach (var project in solution.Projects)
@@ -115,28 +111,9 @@ public class MarkdownDocGenerator
         {
           syntaxTypes[type.Key] = type.Value;
         }
-
-        // Collect documentation descriptions from all classes in all projects
-        foreach (var decl in types.Values)
-        {
-          var description = GetAttributeDescription(decl,
-                                                    "ExtractDocumentation");
-
-          // track name → description (used for Markdown anchors)
-          docSections[decl switch
-                      {
-                        ClassDeclarationSyntax cls => cls.Identifier.Text,
-                        EnumDeclarationSyntax en   => en.Identifier.Text,
-                        _                          => string.Empty,
-                      }] = description?.ToLower()
-                                      ?.Replace(" ",
-                                                "-");
-        }
       }
     }
-
-    return new MarkdownDocGenerator(syntaxTypes,
-                                    docSections);
+    return new MarkdownDocGenerator(syntaxTypes);
   }
 
   /// <summary>
@@ -271,16 +248,19 @@ public class MarkdownDocGenerator
                          };
 
       // If the property is also a class, flatten its members recursively.
-      if (docSections_.TryGetValue(typeName,
-                                   out var desc))
+      if (syntaxTypes_.TryGetValue(typeName,
+                                   out var memberDecl))
       {
-        var nestedClass = syntaxTypes_!.GetValueOrDefault(typeName);
-        if (nestedClass != null)
+        var description = GetAttributeDescription(memberDecl,
+                                                  "ExtractDocumentation");
+        var markdownLink = description?.ToLower()
+                                      ?.Replace(" ",
+                                                "-");
         {
           // Build a link to the "parent" declaration
-          fullName = $"{prefix}__[{propertyName}](#{desc})";
+          fullName = $"{prefix}__[{propertyName}](#{markdownLink})";
           FlattenProperties(builder,
-                            nestedClass as ClassDeclarationSyntax,
+                            memberDecl as ClassDeclarationSyntax,
                             fullName);
           continue;
         }
