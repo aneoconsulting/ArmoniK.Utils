@@ -39,9 +39,7 @@ public class MarkdownDocGenerator
   ///   the value is the corresponding <see cref="MemberDeclarationSyntax" />.
   /// </param>
   private MarkdownDocGenerator(Dictionary<string, MemberDeclarationSyntax> syntaxTypes)
-  {
-    syntaxTypes_ = syntaxTypes;
-  }
+    => syntaxTypes_ = syntaxTypes;
 
   /// <summary>
   ///   Asynchronously creates an instance of <see cref="MarkdownDocGenerator" /> by opening a solution file,
@@ -109,6 +107,7 @@ public class MarkdownDocGenerator
         }
       }
     }
+
     return new MarkdownDocGenerator(syntaxTypes);
   }
 
