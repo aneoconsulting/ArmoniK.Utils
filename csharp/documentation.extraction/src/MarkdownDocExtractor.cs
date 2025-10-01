@@ -38,10 +38,6 @@ public class MarkdownDocGenerator
   ///   extracted from the solution's documents. The key is the class name and
   ///   the value is the corresponding <see cref="MemberDeclarationSyntax" />.
   /// </param>
-  /// <param name="docSections">
-  ///   A dictionary mapping class names to their corresponding documentation
-  ///   section identifiers, which are used for generating Markdown links.
-  /// </param>
   private MarkdownDocGenerator(Dictionary<string, MemberDeclarationSyntax> syntaxTypes)
   {
     syntaxTypes_ = syntaxTypes;
