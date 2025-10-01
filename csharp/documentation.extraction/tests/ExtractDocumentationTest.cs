@@ -176,21 +176,33 @@ public class NestedClassAndEnumsExtractionTests : ExtractionTestBase
 
     const string expected = """
                             ## Options for Awesome Class
+
                             - **AwesomeClass__[Help](#options-for-helper-class)__Path**: string (default: `"localhost"`)
+
                                 This is a test property
+
                             - **AwesomeClass__[Help](#options-for-helper-class)__Port**: int (default: `666`)
+
                                 This is another test property
 
                             ## Options for Helper Class
+
                             - **HelperClass__Path**: string (default: `"localhost"`)
+
                                 This is a test property
+
                             - **HelperClass__Port**: int (default: `666`)
+
                                 This is another test property
 
                             ## Options for Enum
+
                             - **Member1**
+
                                 This is a test member
+
                             - **Member2**
+
                                 This is another test member
 
                             """;
@@ -236,15 +248,34 @@ public class DefaultValuesExtractionTests : ExtractionTestBase
 
     const string expected = """
                             ## Test Default Values Class
+
                             - **TestDefaultsHelperClass__MyInt**: int (default: `0`)
+
+
                             - **TestDefaultsHelperClass__MyBool**: bool (default: `false`)
+
+
                             - **TestDefaultsHelperClass__myFloat**: float (default: `0.0f`)
+
+
                             - **TestDefaultsHelperClass__myDouble**: double (default: `0.0`)
+
+
                             - **TestDefaultsHelperClass__myDecimal**: decimal (default: `0.0m`)
+
+
                             - **TestDefaultsHelperClass__myChar**: char (default: `'\0'`)
+
+
                             - **TestDefaultsHelperClass__MyString**: string (default: ``)
+
+
                             - **TestDefaultsHelperClass__MyNullableString**: string? (default: `null`)
+
+
                             - **TestDefaultsHelperClass__MyCharList**: List<char> (default: `null`)
+
+
                             - **TestDefaultsHelperClass__MyIntList**: List<char> (default: `()`)
                             """;
 

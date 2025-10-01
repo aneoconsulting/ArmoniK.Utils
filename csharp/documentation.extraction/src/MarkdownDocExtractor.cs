@@ -262,7 +262,7 @@ public class MarkdownDocGenerator
         }
       }
 
-      builder.AppendLine($"- **{fullName}**: {typeName} (default: `{defaultValue}`)");
+      builder.AppendLine($"\n- **{fullName}**: {typeName} (default: `{defaultValue}`)\n");
       if (!string.IsNullOrEmpty(summary))
       {
         builder.AppendLine($"    {summary.Trim()}");
@@ -301,7 +301,7 @@ public class MarkdownDocGenerator
             var name    = member.Identifier.Text;
             var summary = GetXmlSummary(member);
 
-            markdownBuilder.AppendLine($"- **{name}**");
+            markdownBuilder.AppendLine($"\n- **{name}**\n");
 
             if (!string.IsNullOrEmpty(summary))
             {
