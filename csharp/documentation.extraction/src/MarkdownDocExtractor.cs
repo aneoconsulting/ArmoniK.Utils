@@ -205,7 +205,8 @@ public class MarkdownDocGenerator
          "float"   => "0.0f",
          "double"  => "0.0",
          "bool"    => "false",
-         "string"  => "null",
+         "string?" => "null",
+         "string"  => string.Empty,
          "char"    => "'\\0'",
          "decimal" => "0.0m",
          _         => "null", // Default for reference types
