@@ -28,26 +28,18 @@ namespace ArmoniK.Utils.DocExtractor;
 /// </summary>
 public class MarkdownDocGenerator
 {
-  private readonly Dictionary<string, string?> docSections_;
-  private readonly List<SyntaxNode>            syntaxRootNodes_;
+  private readonly Dictionary<string, MemberDeclarationSyntax> syntaxTypes_;
 
   /// <summary>
   ///   Initializes a new instance of the <see cref="MarkdownDocGenerator" /> class.
   /// </summary>
-  /// <param name="syntaxRootNodes">
-  ///   A list of syntax root nodes representing the structure of the code
-  ///   extracted from the solution's documents.
+  /// <param name="syntaxTypes">
+  ///   A dictionary of syntax root nodes representing the structure of the code
+  ///   extracted from the solution's documents. The key is the class name and
+  ///   the value is the corresponding <see cref="MemberDeclarationSyntax" />.
   /// </param>
-  /// <param name="docSections">
-  ///   A dictionary mapping class names to their corresponding documentation
-  ///   section identifiers, which are used for generating Markdown links.
-  /// </param>
-  private MarkdownDocGenerator(List<SyntaxNode>            syntaxRootNodes,
-                               Dictionary<string, string?> docSections)
-  {
-    syntaxRootNodes_ = syntaxRootNodes;
-    docSections_     = docSections;
-  }
+  private MarkdownDocGenerator(Dictionary<string, MemberDeclarationSyntax> syntaxTypes)
+    => syntaxTypes_ = syntaxTypes;
 
   /// <summary>
   ///   Asynchronously creates an instance of <see cref="MarkdownDocGenerator" /> by opening a solution file,
@@ -79,8 +71,7 @@ public class MarkdownDocGenerator
     using var workspace = MSBuildWorkspace.Create();
     var       solution  = await workspace.OpenSolutionAsync(solutionPath);
 
-    var syntaxRootNodes = new List<SyntaxNode>();
-    var docSections     = new Dictionary<string, string?>();
+    var syntaxTypes = new Dictionary<string, MemberDeclarationSyntax>();
 
     // Collect all syntax root nodes and descriptions from each decorated class
     foreach (var project in solution.Projects)
@@ -96,35 +87,28 @@ public class MarkdownDocGenerator
 
         var root = await syntaxTree.GetRootAsync()
                                    .ConfigureAwait(false);
-        syntaxRootNodes.Add(root);
 
         var types = root.DescendantNodes()
-                        .Where(n => n is ClassDeclarationSyntax || n is EnumDeclarationSyntax)
+                        .Where(n => n is ClassDeclarationSyntax or EnumDeclarationSyntax)
                         .Cast<MemberDeclarationSyntax>()
                         .Where(decl => decl.AttributeLists.SelectMany(a => a.Attributes)
-                                           .Any(attr => attr.Name.ToString() == "ExtractDocumentation"));
+                                           .Any(attr => attr.Name.ToString() == "ExtractDocumentation"))
+                        .ToDictionary(decl => decl switch
+                                              {
+                                                ClassDeclarationSyntax c => c.Identifier.Text,
+                                                EnumDeclarationSyntax e  => e.Identifier.Text,
+                                                _                        => "",
+                                              });
 
-        // Collect documentation descriptions from all classes in all projects
-        foreach (var decl in types)
+        // Merge all member declaration syntax dictionaries in a global one for latter use.
+        foreach (var type in types)
         {
-          var description = GetAttributeDescription(decl,
-                                                    "ExtractDocumentation");
-
-          // track name → description (used for Markdown anchors)
-          docSections[decl switch
-                      {
-                        ClassDeclarationSyntax cls => cls.Identifier.Text,
-                        EnumDeclarationSyntax en   => en.Identifier.Text,
-                        _                          => string.Empty,
-                      }] = description?.ToLower()
-                                      ?.Replace(" ",
-                                                "-");
+          syntaxTypes[type.Key] = type.Value;
         }
       }
     }
 
-    return new MarkdownDocGenerator(syntaxRootNodes,
-                                    docSections);
+    return new MarkdownDocGenerator(syntaxTypes);
   }
 
   /// <summary>
@@ -145,11 +129,8 @@ public class MarkdownDocGenerator
       markdownBuilder.AppendLine($"# {customTitle}");
     }
 
-    foreach (var root in syntaxRootNodes_)
-    {
-      var markdown = GenerateFromSyntaxRoot(root);
-      markdownBuilder.Append(markdown);
-    }
+    var markdown = GenerateFromSyntaxTypes();
+    markdownBuilder.Append(markdown);
 
     return markdownBuilder.ToString();
   }
@@ -199,27 +180,105 @@ public class MarkdownDocGenerator
                             ?.Content.ToFullString()
                             .Trim();
 
-    return summary?.Replace("///",
-                            "");
+    if (string.IsNullOrWhiteSpace(summary))
+    {
+      return null;
+    }
+
+    // Remove '///', trim lines
+    var cleanSummary = string.Join("\n",
+                                   summary.Split(['\r', '\n'],
+                                                 StringSplitOptions.RemoveEmptyEntries)
+                                          .Select(line => line.Replace("///",
+                                                                       "")
+                                                              .Trim()));
+    return cleanSummary;
+  }
+
+
+  // Get the default value for common value types
+  private static string GetDefaultValueForType(string typeName)
+    => typeName switch
+       {
+         "int"     => "0",
+         "float"   => "0.0f",
+         "double"  => "0.0",
+         "bool"    => "false",
+         "string"  => string.Empty,
+         "char"    => "'\\0'",
+         "decimal" => "0.0m",
+         _         => "null", // Default for reference types
+       };
+
+  /// <summary>
+  ///   Iterates over all properties in the given class declaration and appends a flattened
+  ///   representation of each one to the specified <see cref="StringBuilder" />.
+  /// </summary>
+  /// <param name="builder">The output buffer used to collect flattened property definitions.</param>
+  /// <param name="classDecl">The class whose properties will be inspected.</param>
+  /// <param name="prefix">The name prefix used to construct the flattened property path.</param>
+  private void FlattenProperties(StringBuilder           builder,
+                                 ClassDeclarationSyntax? classDecl,
+                                 string                  prefix)
+  {
+    if (classDecl == null)
+    {
+      return;
+    }
+
+    foreach (var property in classDecl.Members.OfType<PropertyDeclarationSyntax>())
+    {
+      var typeName     = property.Type.ToString();
+      var propertyName = property.Identifier.Text;
+      var summary      = GetXmlSummary(property);
+      var fullName     = $"{prefix}__{propertyName}";
+
+      var initializer = property.Initializer;
+
+      // Check if the default value is an ObjectCreationExpressionSyntax
+      var defaultValue = initializer?.Value.ToString() switch
+                         {
+                           "new()" => "()", // Display "()" instead of "new()" as default value
+                           _       => initializer?.Value.ToString() ?? GetDefaultValueForType(typeName),
+                         };
+
+      // If the property is also a class, flatten its members recursively.
+      if (syntaxTypes_.TryGetValue(typeName,
+                                   out var memberDecl))
+      {
+        var description = GetAttributeDescription(memberDecl,
+                                                  "ExtractDocumentation");
+        var markdownLink = description?.ToLower()
+                                      ?.Replace(" ",
+                                                "-");
+        {
+          // Build a link to the "parent" declaration
+          fullName = $"{prefix}__[{propertyName}](#{markdownLink})";
+          FlattenProperties(builder,
+                            memberDecl as ClassDeclarationSyntax,
+                            fullName);
+          continue;
+        }
+      }
+
+      builder.AppendLine($"\n- **{fullName}**: {typeName} (default: `{defaultValue}`)\n");
+      if (!string.IsNullOrEmpty(summary))
+      {
+        builder.AppendLine($"    {summary.Trim()}");
+      }
+    }
   }
 
   /// <summary>
   ///   Generates Markdown documentation from a Roslyn <see cref="SyntaxNode" />.
   ///   Only classes and enums decorated with <c>[ExtractDocumentation]</c> will be processed.
   /// </summary>
-  /// <param name="root">The root syntax node of the document.</param>
   /// <returns>A Markdown string documenting the class and its public properties.</returns>
-  private string GenerateFromSyntaxRoot(SyntaxNode root)
+  private string GenerateFromSyntaxTypes()
   {
     var markdownBuilder = new StringBuilder();
 
-    var types = root.DescendantNodes()
-                    .Where(n => n is ClassDeclarationSyntax or EnumDeclarationSyntax)
-                    .Cast<MemberDeclarationSyntax>()
-                    .Where(decl => decl.AttributeLists.SelectMany(a => a.Attributes)
-                                       .Any(attr => attr.Name.ToString() == "ExtractDocumentation"));
-
-    foreach (var decl in types)
+    foreach (var decl in syntaxTypes_.Values)
     {
       var description = GetAttributeDescription(decl,
                                                 "ExtractDocumentation");
@@ -229,29 +288,9 @@ public class MarkdownDocGenerator
       {
         case ClassDeclarationSyntax classDecl:
         {
-          foreach (var property in classDecl.Members.OfType<PropertyDeclarationSyntax>())
-          {
-            var type    = property.Type.ToString();
-            var name    = property.Identifier.Text;
-            var summary = GetXmlSummary(property);
-            var envVar  = $"{classDecl.Identifier.Text}__{name}";
-
-            if (docSections_.TryGetValue(type,
-                                         out var desc))
-            {
-              markdownBuilder.AppendLine($"- **{envVar}**: [{type}](#{desc})");
-            }
-            else
-            {
-              markdownBuilder.AppendLine($"- **{envVar}**: {type}");
-            }
-
-            if (!string.IsNullOrEmpty(summary))
-            {
-              markdownBuilder.AppendLine($"\n{summary}");
-            }
-          }
-
+          FlattenProperties(markdownBuilder,
+                            classDecl,
+                            classDecl.Identifier.Text);
           break;
         }
         case EnumDeclarationSyntax enumDecl:
@@ -261,11 +300,11 @@ public class MarkdownDocGenerator
             var name    = member.Identifier.Text;
             var summary = GetXmlSummary(member);
 
-            markdownBuilder.AppendLine($"- **{name}**");
+            markdownBuilder.AppendLine($"\n- **{name}**\n");
 
             if (!string.IsNullOrEmpty(summary))
             {
-              markdownBuilder.AppendLine($"\n{summary}");
+              markdownBuilder.AppendLine($"    {summary.Trim()}");
             }
           }
 
