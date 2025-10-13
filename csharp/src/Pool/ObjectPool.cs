@@ -15,6 +15,8 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -490,6 +492,125 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     }
   }
 
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   Once the object has been created, <paramref name="f" /> is called with the acquired object.
+  /// </summary>
+  /// <remarks>
+  ///   The object will be released to the pool once the enumerable will be fully iterated over.
+  /// </remarks>
+  /// <param name="f">Function to call with the acquired object</param>
+  /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
+  /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
+  /// <typeparam name="TOut">Return type of <paramref name="f" /></typeparam>
+  /// <returns>Return value of <paramref name="f" /></returns>
+  [PublicAPI]
+  public async IAsyncEnumerable<TOut> WithInstanceAsync<TOut>(Func<T, IAsyncEnumerable<TOut>>            f,
+                                                              [EnumeratorCancellation] CancellationToken cancellationToken = default)
+  {
+    await using var guard = await GetAsync(cancellationToken)
+                              .ConfigureAwait(false);
+
+    IAsyncEnumerator<TOut> enumerator;
+    try
+    {
+      var enumerable = f(guard.Value);
+      enumerator = enumerable.GetAsyncEnumerator(cancellationToken);
+    }
+    catch (Exception e)
+    {
+      guard.Exception = e;
+      throw;
+    }
+
+    // Manual iteration over enumerable is required since it is not possible to yield within a try block
+    await using (enumerator)
+    {
+      while (true)
+      {
+        TOut item;
+        try
+        {
+          cancellationToken.ThrowIfCancellationRequested();
+          if (!await enumerator.MoveNextAsync()
+                               .ConfigureAwait(false))
+          {
+            yield break;
+          }
+
+          item = enumerator.Current;
+        }
+        catch (Exception e)
+        {
+          guard.Exception = e;
+          throw;
+        }
+
+        yield return item;
+      }
+    }
+  }
+
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   Once the object has been created, <paramref name="f" /> is called with the acquired object.
+  /// </summary>
+  /// <remarks>
+  ///   The object will be released to the pool once the enumerable will be fully iterated over.
+  /// </remarks>
+  /// <param name="f">Function to call with the acquired object</param>
+  /// <param name="cancellationToken">Cancellation token used for stopping the Acquire of a new object</param>
+  /// <exception cref="OperationCanceledException">Exception thrown when the cancellation is requested</exception>
+  /// <typeparam name="TOut">Return type of <paramref name="f" /></typeparam>
+  /// <returns>Return value of <paramref name="f" /></returns>
+  [PublicAPI]
+  public async IAsyncEnumerable<TOut> WithInstanceAsync<TOut>(Func<T, IEnumerable<TOut>>                 f,
+                                                              [EnumeratorCancellation] CancellationToken cancellationToken = default)
+  {
+    await using var guard = await GetAsync(cancellationToken)
+                              .ConfigureAwait(false);
+
+    IEnumerator<TOut> enumerator;
+    try
+    {
+      var enumerable = f(guard.Value);
+      enumerator = enumerable.GetEnumerator();
+    }
+    catch (Exception e)
+    {
+      guard.Exception = e;
+      throw;
+    }
+
+    // Manual iteration over enumerable is required since it is not possible to yield within a try block
+    using (enumerator)
+    {
+      while (true)
+      {
+        TOut item;
+        try
+        {
+          cancellationToken.ThrowIfCancellationRequested();
+          if (!enumerator.MoveNext())
+          {
+            yield break;
+          }
+
+          item = enumerator.Current;
+        }
+        catch (Exception e)
+        {
+          guard.Exception = e;
+          throw;
+        }
+
+        yield return item;
+      }
+    }
+  }
+
 
   /// <summary>
   ///   Acquire a new object from the pool, creating it if there is no object in the pool.
@@ -534,6 +655,60 @@ public class ObjectPool<T> : IDisposable, IAsyncDisposable
     {
       guard.Exception = e;
       throw;
+    }
+  }
+
+  /// <summary>
+  ///   Acquire a new object from the pool, creating it if there is no object in the pool.
+  ///   If the limit of object has been reached, this method will wait for an object to be released.
+  ///   Once the object has been created, <paramref name="f" /> is called with the acquired object.
+  /// </summary>
+  /// <remarks>
+  ///   The object will be released to the pool once the enumerable will be fully iterated over.
+  /// </remarks>
+  /// <param name="f">Function to call with the acquired object</param>
+  /// <typeparam name="TOut">Return type of <paramref name="f" /></typeparam>
+  /// <returns>Return value of <paramref name="f" /></returns>
+  [PublicAPI]
+  public IEnumerable<TOut> WithInstance<TOut>(Func<T, IEnumerable<TOut>> f)
+  {
+    using var guard = Get();
+
+    IEnumerator<TOut> enumerator;
+    try
+    {
+      var enumerable = f(guard.Value);
+      enumerator = enumerable.GetEnumerator();
+    }
+    catch (Exception e)
+    {
+      guard.Exception = e;
+      throw;
+    }
+
+    // Manual iteration over enumerable is required since it is not possible to yield within a try block
+    using (enumerator)
+    {
+      while (true)
+      {
+        TOut item;
+        try
+        {
+          if (!enumerator.MoveNext())
+          {
+            yield break;
+          }
+
+          item = enumerator.Current;
+        }
+        catch (Exception e)
+        {
+          guard.Exception = e;
+          throw;
+        }
+
+        yield return item;
+      }
     }
   }
 }
