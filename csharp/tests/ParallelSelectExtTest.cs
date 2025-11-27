@@ -275,11 +275,12 @@ public class ParallelSelectExtTest
                                            1,
                                            CancellationToken.None)
                          .Select(CancelAt)
-                         .SelectAwait(async x =>
-                                      {
-                                        await Task.Yield();
-                                        return x;
-                                      })
+                         .Select(async (int               x,
+                                        CancellationToken _) =>
+                                 {
+                                   await Task.Yield();
+                                   return x;
+                                 })
                          .ParallelSelect(new ParallelTaskOptions(unordered,
                                                                  -1,
                                                                  cts.Token),
@@ -656,11 +657,12 @@ public class ParallelSelectExtTest
                                      1,
                                      CancellationToken.None)
                    .Select(CancelAt)
-                   .SelectAwait(async x =>
-                                {
-                                  await Task.Yield();
-                                  return x;
-                                })
+                   .Select(async (int               x,
+                                  CancellationToken _) =>
+                           {
+                             await Task.Yield();
+                             return x;
+                           })
                    .ParallelForEach(new ParallelTaskOptions(unordered,
                                                             -1,
                                                             cts.Token),
