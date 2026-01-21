@@ -171,7 +171,8 @@ public class MarkdownDocGenerator
   ///   The contents of the <c>&lt;sectionName&gt;</c> XML documentation element as plain text,
   ///   or <c>null</c> if no section with the given name is found.
   /// </returns>
-  private static string? GetXmlDocumentation(SyntaxNode node, string sectionName = "summary")
+  private static string? GetXmlDocumentation(SyntaxNode node,
+                                             string     sectionName = "summary")
   {
     var xmlComment = node.GetLeadingTrivia()
                          .Select(trivia => trivia.GetStructure())
@@ -184,8 +185,7 @@ public class MarkdownDocGenerator
     }
 
     // Find all matching sections
-    var sections = xmlComment.Content
-                             .OfType<XmlElementSyntax>()
+    var sections = xmlComment.Content.OfType<XmlElementSyntax>()
                              .Where(e => e.StartTag.Name.ToString() == sectionName)
                              .ToList();
 
@@ -194,17 +194,20 @@ public class MarkdownDocGenerator
       return null;
     }
 
-    var allSections = sections
-                      .Select(section => section.Content.ToFullString().Trim())
-                      .ToList();
+    var allSections = sections.Select(section => section.Content.ToFullString()
+                                                        .Trim())
+                              .ToList();
 
-    var cleanedSections = allSections
-                          .SelectMany(section => section.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
-                          .Select(line => line.Replace("///", "").Trim())
-                          .Where(line => !string.IsNullOrWhiteSpace(line))
-                          .ToList();
+    var cleanedSections = allSections.SelectMany(section => section.Split(['\r', '\n'],
+                                                                          StringSplitOptions.RemoveEmptyEntries))
+                                     .Select(line => line.Replace("///",
+                                                                  "")
+                                                         .Trim())
+                                     .Where(line => !string.IsNullOrWhiteSpace(line))
+                                     .ToList();
 
-    return string.Join("\n", cleanedSections);
+    return string.Join("\n",
+                       cleanedSections);
   }
 
 
@@ -242,9 +245,10 @@ public class MarkdownDocGenerator
     {
       var typeName     = property.Type.ToString();
       var propertyName = property.Identifier.Text;
-      var summary      = GetXmlDocumentation(property, sectionName:"summary");
-      var remarks      = GetXmlDocumentation(property, sectionName:"remarks");
-      var fullName     = $"{prefix}__{propertyName}";
+      var summary      = GetXmlDocumentation(property);
+      var remarks = GetXmlDocumentation(property,
+                                        "remarks");
+      var fullName = $"{prefix}__{propertyName}";
 
       var initializer = property.Initializer;
 
@@ -279,6 +283,7 @@ public class MarkdownDocGenerator
       {
         builder.AppendLine($"    {summary.Trim()}");
       }
+
       if (!string.IsNullOrEmpty(remarks))
       {
         builder.AppendLine($"    {remarks.Trim()}");
@@ -315,8 +320,9 @@ public class MarkdownDocGenerator
           foreach (var member in enumDecl.Members)
           {
             var name    = member.Identifier.Text;
-            var summary = GetXmlDocumentation(member, sectionName:"summary");
-            var remarks = GetXmlDocumentation(member, sectionName:"remarks");
+            var summary = GetXmlDocumentation(member);
+            var remarks = GetXmlDocumentation(member,
+                                              "remarks");
 
             markdownBuilder.AppendLine($"\n- **{name}**\n");
 
@@ -324,6 +330,7 @@ public class MarkdownDocGenerator
             {
               markdownBuilder.AppendLine($"    {summary.Trim()}");
             }
+
             if (!string.IsNullOrEmpty(remarks))
             {
               markdownBuilder.AppendLine($"    {remarks.Trim()}");
