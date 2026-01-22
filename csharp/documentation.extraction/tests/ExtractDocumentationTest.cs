@@ -283,3 +283,53 @@ public class DefaultValuesExtractionTests : ExtractionTestBase
                 Is.EqualTo(Normalize(expected)));
   }
 }
+
+[TestFixture]
+public class XmlSectionsExtractionTests : ExtractionTestBase
+{
+  protected override string GenerateClassCode()
+    => """
+       using System;
+
+       [ExtractDocumentation("Test XML Section extraction Class")]
+       public class HelperClass
+       {
+           /// <summary>
+           ///  Belphegor's prime is a palindromic prime number
+           /// </summary>
+           /// <remarks>
+           ///  There is a whole sequence of primes like it
+           /// </remarks>
+           /// <example>
+           ///  The first one is 1661
+           /// </example>
+           public int belphegorPrime { get; set; } = 1000000000000066600000000000001
+       }
+
+       public class ExtractDocumentationAttribute : Attribute
+       {
+           public ExtractDocumentationAttribute(string description) { }
+       }
+       """;
+
+  [Test]
+  public async Task XmlSectionExtractionIsCorrect()
+  {
+    var generator = await MarkdownDocGenerator.CreateAsync(TempSolutionPath);
+    var markdown  = generator.Generate();
+
+    Console.Write(markdown);
+    const string expected = """
+                            ## Test XML Section extraction Class
+
+                            - **HelperClass__belphegorPrime**: int (default: `1000000000000066600000000000001`)
+
+                                Belphegor's prime is a palindromic prime number
+                                There is a whole sequence of primes like it
+                                The first one is 1661
+                            """;
+
+    Assert.That(Normalize(markdown),
+                Is.EqualTo(Normalize(expected)));
+  }
+}

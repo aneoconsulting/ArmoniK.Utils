@@ -28,6 +28,11 @@ namespace ArmoniK.Utils.DocExtractor;
 /// </summary>
 public class MarkdownDocGenerator
 {
+  /// <summary>
+  ///   Sections to extract from the XML documentation
+  /// </summary>
+  private readonly List<string> sectionsToExtract_ = ["summary", "remarks", "example"];
+
   private readonly Dictionary<string, MemberDeclarationSyntax> syntaxTypes_;
 
   /// <summary>
@@ -245,10 +250,7 @@ public class MarkdownDocGenerator
     {
       var typeName     = property.Type.ToString();
       var propertyName = property.Identifier.Text;
-      var summary      = GetXmlDocumentation(property);
-      var remarks = GetXmlDocumentation(property,
-                                        "remarks");
-      var fullName = $"{prefix}__{propertyName}";
+      var fullName     = $"{prefix}__{propertyName}";
 
       var initializer = property.Initializer;
 
@@ -279,14 +281,14 @@ public class MarkdownDocGenerator
       }
 
       builder.AppendLine($"\n- **{fullName}**: {typeName} (default: `{defaultValue}`)\n");
-      if (!string.IsNullOrEmpty(summary))
+      foreach (var sectionName in sectionsToExtract_)
       {
-        builder.AppendLine($"    {summary.Trim()}");
-      }
-
-      if (!string.IsNullOrEmpty(remarks))
-      {
-        builder.AppendLine($"    {remarks.Trim()}");
+        var section = GetXmlDocumentation(property,
+                                          sectionName);
+        if (!string.IsNullOrEmpty(section))
+        {
+          builder.AppendLine($"    {section.Trim()}");
+        }
       }
     }
   }
@@ -319,21 +321,17 @@ public class MarkdownDocGenerator
         {
           foreach (var member in enumDecl.Members)
           {
-            var name    = member.Identifier.Text;
-            var summary = GetXmlDocumentation(member);
-            var remarks = GetXmlDocumentation(member,
-                                              "remarks");
-
+            var name = member.Identifier.Text;
             markdownBuilder.AppendLine($"\n- **{name}**\n");
 
-            if (!string.IsNullOrEmpty(summary))
+            foreach (var sectionName in sectionsToExtract_)
             {
-              markdownBuilder.AppendLine($"    {summary.Trim()}");
-            }
-
-            if (!string.IsNullOrEmpty(remarks))
-            {
-              markdownBuilder.AppendLine($"    {remarks.Trim()}");
+              var section = GetXmlDocumentation(member,
+                                                sectionName);
+              if (!string.IsNullOrEmpty(section))
+              {
+                markdownBuilder.AppendLine($"    {section.Trim()}");
+              }
             }
           }
 
