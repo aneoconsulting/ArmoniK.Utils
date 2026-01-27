@@ -28,6 +28,11 @@ namespace ArmoniK.Utils.DocExtractor;
 /// </summary>
 public class MarkdownDocGenerator
 {
+  /// <summary>
+  ///   Sections to extract from the XML documentation
+  /// </summary>
+  private readonly List<string> sectionsToExtract_ = ["summary", "remarks", "example"];
+
   private readonly Dictionary<string, MemberDeclarationSyntax> syntaxTypes_;
 
   /// <summary>
@@ -159,40 +164,55 @@ public class MarkdownDocGenerator
   }
 
   /// <summary>
-  ///   Extracts the XML documentation summary associated with a syntax node.
+  ///   Extracts the XML documentation associated with a syntax node.
   /// </summary>
   /// <param name="node">
   ///   The <see cref="SyntaxNode" /> to inspect (e.g., property, enum member).
   /// </param>
+  /// <param name="sectionName">
+  ///   The name of the section to extract.
+  /// </param>
   /// <returns>
-  ///   The contents of the <c>&lt;summary&gt;</c> XML documentation element as plain text,
-  ///   or <c>null</c> if no summary is found.
+  ///   The contents of the <c>&lt;sectionName&gt;</c> XML documentation element as plain text,
+  ///   or <c>null</c> if no section with the given name is found.
   /// </returns>
-  private static string? GetXmlSummary(SyntaxNode node)
+  private static string? GetXmlDocumentation(SyntaxNode node,
+                                             string     sectionName = "summary")
   {
     var xmlComment = node.GetLeadingTrivia()
                          .Select(trivia => trivia.GetStructure())
                          .OfType<DocumentationCommentTriviaSyntax>()
                          .FirstOrDefault();
 
-    var summary = xmlComment?.Content.OfType<XmlElementSyntax>()
-                            .FirstOrDefault(e => e.StartTag.Name.ToString() == "summary")
-                            ?.Content.ToFullString()
-                            .Trim();
-
-    if (string.IsNullOrWhiteSpace(summary))
+    if (xmlComment == null)
     {
       return null;
     }
 
-    // Remove '///', trim lines
-    var cleanSummary = string.Join("\n",
-                                   summary.Split(['\r', '\n'],
-                                                 StringSplitOptions.RemoveEmptyEntries)
-                                          .Select(line => line.Replace("///",
-                                                                       "")
-                                                              .Trim()));
-    return cleanSummary;
+    // Find all matching sections
+    var sections = xmlComment.Content.OfType<XmlElementSyntax>()
+                             .Where(e => e.StartTag.Name.ToString() == sectionName)
+                             .ToList();
+
+    if (sections.Count == 0)
+    {
+      return null;
+    }
+
+    var allSections = sections.Select(section => section.Content.ToFullString()
+                                                        .Trim())
+                              .ToList();
+
+    var cleanedSections = allSections.SelectMany(section => section.Split(['\r', '\n'],
+                                                                          StringSplitOptions.RemoveEmptyEntries))
+                                     .Select(line => line.Replace("///",
+                                                                  "")
+                                                         .Trim())
+                                     .Where(line => !string.IsNullOrWhiteSpace(line))
+                                     .ToList();
+
+    return string.Join("\n",
+                       cleanedSections);
   }
 
 
@@ -230,7 +250,6 @@ public class MarkdownDocGenerator
     {
       var typeName     = property.Type.ToString();
       var propertyName = property.Identifier.Text;
-      var summary      = GetXmlSummary(property);
       var fullName     = $"{prefix}__{propertyName}";
 
       var initializer = property.Initializer;
@@ -262,9 +281,14 @@ public class MarkdownDocGenerator
       }
 
       builder.AppendLine($"\n- **{fullName}**: {typeName} (default: `{defaultValue}`)\n");
-      if (!string.IsNullOrEmpty(summary))
+      foreach (var sectionName in sectionsToExtract_)
       {
-        builder.AppendLine($"    {summary.Trim()}");
+        var section = GetXmlDocumentation(property,
+                                          sectionName);
+        if (!string.IsNullOrEmpty(section))
+        {
+          builder.AppendLine($"    {section.Trim()}");
+        }
       }
     }
   }
@@ -297,14 +321,17 @@ public class MarkdownDocGenerator
         {
           foreach (var member in enumDecl.Members)
           {
-            var name    = member.Identifier.Text;
-            var summary = GetXmlSummary(member);
-
+            var name = member.Identifier.Text;
             markdownBuilder.AppendLine($"\n- **{name}**\n");
 
-            if (!string.IsNullOrEmpty(summary))
+            foreach (var sectionName in sectionsToExtract_)
             {
-              markdownBuilder.AppendLine($"    {summary.Trim()}");
+              var section = GetXmlDocumentation(member,
+                                                sectionName);
+              if (!string.IsNullOrEmpty(section))
+              {
+                markdownBuilder.AppendLine($"    {section.Trim()}");
+              }
             }
           }
 
