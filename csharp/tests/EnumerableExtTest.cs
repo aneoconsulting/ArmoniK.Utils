@@ -163,6 +163,13 @@ public class EnumerableExtTest
                                 orig));
   }
 
+  [Test]
+  public void ToBlockingEnumerable()
+    => Assert.That(GenerateInts(5)
+                   .ToAsyncEnumerable()
+                   .ToBlocking(),
+                   Is.EqualTo(GenerateInts(5)));
+
   private static IEnumerable<int> GenerateInts(int n)
   {
     for (var i = 0; i < n; ++i)

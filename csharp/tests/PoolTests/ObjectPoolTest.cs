@@ -15,7 +15,9 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -42,6 +44,7 @@ public class ObjectPoolTest
     Get,
     WithFunc,
     WithAction,
+    WithEnumerable,
   }
 
   [Test]
@@ -132,6 +135,36 @@ public class ObjectPoolTest
                                                                      (val0, val1) = (x, y);
                                                                    }))
                     .ConfigureAwait(false);
+          break;
+        case (UseMethod.WithEnumerable, false, _):
+          EnumerateAll(pool.WithInstance(x => pool.WithInstance(EnumerableGenerator<int, int>(2,
+                                                                                              (i,
+                                                                                               y) =>
+                                                                                              {
+                                                                                                (val0, val1) = (x, y);
+                                                                                                return i;
+                                                                                              }))));
+          break;
+        case (UseMethod.WithEnumerable, true, false):
+          await EnumerateAll(pool.WithInstanceAsync(x => pool.WithInstanceAsync(EnumerableGenerator<int, int>(2,
+                                                                                                              (i,
+                                                                                                               y) =>
+                                                                                                              {
+                                                                                                                (val0, val1) = (x, y);
+                                                                                                                return i;
+                                                                                                              }))
+                                                             .ToBlocking()))
+            .ConfigureAwait(false);
+          break;
+        case (UseMethod.WithEnumerable, true, true):
+          await EnumerateAll(pool.WithInstanceAsync(x => pool.WithInstanceAsync(EnumerableGeneratorAsync<int, int>(2,
+                                                                                                                   (i,
+                                                                                                                    y) =>
+                                                                                                                   {
+                                                                                                                     (val0, val1) = (x, y);
+                                                                                                                     return i;
+                                                                                                                   }))))
+            .ConfigureAwait(false);
           break;
       }
       // ReSharper restore AccessToDisposedClosure
@@ -456,6 +489,41 @@ public class ObjectPoolTest
                                                                                                                                    .ConfigureAwait(false))
                                                                                                    .ConfigureAwait(false);
                                                                                        },
+                                                 (UseMethod.WithEnumerable, false, _) => f =>
+                                                                                         {
+                                                                                           EnumerateAll(pool.WithInstance(EnumerableGenerator<int, int>(1,
+                                                                                                                                                        (_,
+                                                                                                                                                         x) =>
+                                                                                                                                                        {
+                                                                                                                                                          f()
+                                                                                                                                                            .AsTask()
+                                                                                                                                                            .Wait();
+                                                                                                                                                          return x;
+                                                                                                                                                        })));
+                                                                                           return new ValueTask();
+                                                                                         },
+                                                 (UseMethod.WithEnumerable, true, false) => f => EnumerateAll(pool.WithInstanceAsync(EnumerableGenerator<int, int>(1,
+                                                                                                                                                                   (_,
+                                                                                                                                                                    x) =>
+                                                                                                                                                                   {
+                                                                                                                                                                     f()
+                                                                                                                                                                       .AsTask()
+                                                                                                                                                                       .Wait();
+                                                                                                                                                                     return
+                                                                                                                                                                       x;
+                                                                                                                                                                   }))),
+                                                 (UseMethod.WithEnumerable, true, true) => f => EnumerateAll(pool.WithInstanceAsync(EnumerableGeneratorAsync<int, int>(1,
+                                                                                                                                                                       async (
+                                                                                                                                                                           _,
+                                                                                                                                                                           x)
+                                                                                                                                                                         =>
+                                                                                                                                                                       {
+                                                                                                                                                                         await
+                                                                                                                                                                           f()
+                                                                                                                                                                             .ConfigureAwait(false);
+                                                                                                                                                                         return
+                                                                                                                                                                           x;
+                                                                                                                                                                       }))),
                                                  _ => throw new ArgumentOutOfRangeException(nameof(useMethod)),
                                                };
 
@@ -1197,6 +1265,47 @@ public class ObjectPoolTest
          _ => throw new ArgumentException("Invalid",
                                           nameof(project)),
        };
+
+
+  private static Func<TIn, IEnumerable<TOut>> EnumerableGenerator<TIn, TOut>(int                  n,
+                                                                             Func<int, TIn, TOut> f)
+    => x => Enumerable.Range(0,
+                             n)
+                      .Select(i => f(i,
+                                     x));
+
+  private static Func<TIn, IAsyncEnumerable<TOut>> EnumerableGeneratorAsync<TIn, TOut>(int                  n,
+                                                                                       Func<int, TIn, TOut> f)
+    => x => Enumerable.Range(0,
+                             n)
+                      .ToAsyncEnumerable()
+                      .Select(i => f(i,
+                                     x));
+
+  private static Func<TIn, IAsyncEnumerable<TOut>> EnumerableGeneratorAsync<TIn, TOut>(int                             n,
+                                                                                       Func<int, TIn, ValueTask<TOut>> f)
+    => x => Enumerable.Range(0,
+                             n)
+                      .ToAsyncEnumerable()
+                      .Select((int               i,
+                               CancellationToken _) => f(i,
+                                                         x));
+
+  private static void EnumerateAll<TIn>(IEnumerable<TIn> enumerable)
+  {
+    foreach (var _ in enumerable)
+    {
+      // Empty on purpose
+    }
+  }
+
+  private static async ValueTask EnumerateAll<TIn>(IAsyncEnumerable<TIn> enumerable)
+  {
+    await foreach (var _ in enumerable)
+    {
+      // Empty on purpose
+    }
+  }
 
   private record SyncDisposeAction(Action F) : IDisposable
   {
