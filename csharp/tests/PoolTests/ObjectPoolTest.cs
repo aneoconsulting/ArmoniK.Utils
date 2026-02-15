@@ -563,6 +563,66 @@ public class ObjectPoolTest
 
   [Test]
   [AbortAfter(1000)]
+  public async Task EnumerateRelease([Values(0,
+                                             1,
+                                             2,
+                                             3,
+                                             4)]
+                                     int n,
+                                     [Values] bool asyncUse,
+                                     [Values] bool asyncContext)
+  {
+    await using var pool = new ObjectPool<int>(1,
+                                               _ => new ValueTask<int>(0));
+
+    var enumerable = (asyncContext, asyncUse) switch
+                     {
+                       (false, _) => pool.WithInstance(EnumerableGenerator<int, int>(3,
+                                                                                     (i,
+                                                                                      _) => i))
+                                         .ToAsyncEnumerable(),
+                       (true, false) => pool.WithInstanceAsync(EnumerableGenerator<int, int>(3,
+                                                                                             (i,
+                                                                                              _) => i)),
+                       (true, true) => pool.WithInstanceAsync(EnumerableGeneratorAsync<int, int>(3,
+                                                                                                 (i,
+                                                                                                  _) => i)),
+                     };
+
+    Assert.That(() => IsPoolAvailableAsync(pool),
+                Is.True);
+
+    await using (var enumerator = enumerable.GetAsyncEnumerator())
+    {
+      Assert.That(() => IsPoolAvailableAsync(pool),
+                  Is.True);
+      for (var i = 0; i < n; ++i)
+      {
+        if (i < 3)
+        {
+          Assert.That(enumerator.MoveNextAsync,
+                      Is.True);
+          Assert.That(enumerator.Current,
+                      Is.EqualTo(i));
+          Assert.That(() => IsPoolAvailableAsync(pool),
+                      Is.False);
+        }
+        else
+        {
+          Assert.That(enumerator.MoveNextAsync,
+                      Is.False);
+          Assert.That(() => IsPoolAvailableAsync(pool),
+                      Is.True);
+        }
+      }
+    }
+
+    Assert.That(() => IsPoolAvailableAsync(pool),
+                Is.True);
+  }
+
+  [Test]
+  [AbortAfter(1000)]
   public async Task AcquireCancellation([Values] bool    asyncFactory,
                                         [Values] Project project,
                                         [Values] Project projectGet)
