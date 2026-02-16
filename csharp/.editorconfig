@@ -65,7 +65,7 @@ dotnet_style_qualification_for_field = false:suggestion
 dotnet_style_qualification_for_method = false:suggestion
 dotnet_style_qualification_for_property = false:suggestion
 dotnet_style_require_accessibility_modifiers = for_non_interface_members:suggestion
-file_header_template = This file is part of the ArmoniK project\n\nCopyright (C) ANEO, 2022-$CURRENT_YEAR$.All rights reserved.\n\nLicensed under the Apache License, Version 2.0 (the "License")\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n    http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an "AS IS" BASIS, \nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n
+file_header_template = This file is part of the ArmoniK project\n\nCopyright (C) ANEO, 2022-$CURRENT_YEAR$. All rights reserved.\n\nLicensed under the Apache License, Version 2.0 (the "License")\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n    http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an "AS IS" BASIS, \nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n
 
 # diagnostics
 dotnet_diagnostic.CA2213.severity = error
@@ -103,6 +103,7 @@ resharper_csharp_naming_rule.private_static_fields = _ + aaBb
 resharper_csharp_naming_rule.private_static_readonly = AaBb
 resharper_csharp_outdent_commas = true
 resharper_csharp_place_type_constraints_on_same_line = false
+resharper_csharp_prefer_qualified_reference = false
 resharper_csharp_use_indent_from_vs = false
 resharper_csharp_wrap_arguments_style = chop_always
 resharper_csharp_wrap_chained_method_calls = chop_always
@@ -127,6 +128,7 @@ resharper_place_simple_anonymousmethod_on_single_line = false
 resharper_place_simple_embedded_statement_on_same_line = false
 resharper_place_simple_initializer_on_single_line = false
 resharper_place_simple_property_pattern_on_single_line = false
+resharper_enforce_line_ending_style = true
 resharper_protobuf_indent_size = 2
 resharper_protobuf_tab_width = 2
 resharper_protobuf_use_indent_from_vs = false
@@ -161,3 +163,5 @@ resharper_suggest_var_or_type_built_in_types_highlighting = hint
 resharper_suggest_var_or_type_elsewhere_highlighting = hint
 resharper_suggest_var_or_type_simple_types_highlighting = hint
 
+[IsExternalInit.cs]
+file_header_template = Licensed to the .NET Foundation under one or more agreements.\nThe .NET Foundation licenses this file to you under the MIT license.\nSee the LICENSE file in the project root for more information.\nhttps://github.com/dotnet/roslyn/issues/45510

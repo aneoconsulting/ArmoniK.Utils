@@ -1,13 +1,13 @@
 ﻿// This file is part of the ArmoniK project
-//
-// Copyright (C) ANEO, 2022-2023.All rights reserved.
-//
+// 
+// Copyright (C) ANEO, 2022-2026. All rights reserved.
+// 
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-//
+// 
 //     http://www.apache.org/licenses/LICENSE-2.0
-//
+// 
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,9 +24,9 @@ namespace ArmoniK.Utils.Tests;
 
 public class AsyncLazyTest
 {
-  ///////////////
+  // ///////// //
   // With type //
-  ///////////////
+  // ///////// //
   [Test]
   [AbortAfter(1000)]
   public async Task AsyncLazy([Values] bool async)
@@ -126,9 +126,9 @@ public class AsyncLazyTest
                             });
   }
 
-  //////////////////
+  // //////////// //
   // Without type //
-  //////////////////
+  // //////////// //
   [Test]
   [AbortAfter(1000)]
   public async Task AsyncLazyUntyped([Values] bool async)

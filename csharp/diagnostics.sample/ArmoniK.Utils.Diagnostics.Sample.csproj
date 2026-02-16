@@ -9,9 +9,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../src/ArmoniK.Utils.csproj"/>
+    <ProjectReference Include="../src/ArmoniK.Utils.csproj" />
     <ProjectReference Include="../diagnostics/ArmoniK.Utils.Diagnostics.csproj"
-                      OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>
