@@ -42,7 +42,7 @@ jobs:
         fetch-depth: 0
         submodules: true
     - name: Install .NET Core
-      uses: actions/setup-dotnet@d4c94342e560b34958eacfc5d055d21461ed1c5d # v5
+      uses: actions/setup-dotnet@baa11fbfe1d6520db94683bd5c7a3818018e4309 # v5
       with:
         dotnet-version: 10.x
 
@@ -107,7 +107,7 @@ jobs:
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
     - name: Install .NET Core
-      uses: actions/setup-dotnet@d4c94342e560b34958eacfc5d055d21461ed1c5d # v5
+      uses: actions/setup-dotnet@baa11fbfe1d6520db94683bd5c7a3818018e4309 # v5
       if: ${{ matrix.dotnet.version }} != ""
       with:
         dotnet-version: |
@@ -120,7 +120,7 @@ jobs:
         dotnet test --runtime ${{ matrix.platform.runtime }} -f ${{ matrix.dotnet.framework }} --logger "trx;LogFileName=test-results.trx"
 
     - name: Test Report
-      uses: dorny/test-reporter@dc3a92680fcc15842eef52e8c4606ea7ce6bd3f3 # v2
+      uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2
       if: always()
       with:
         name: IntegrationTests ${{ matrix.platform.runtime }} ${{ matrix.dotnet.framework }}
