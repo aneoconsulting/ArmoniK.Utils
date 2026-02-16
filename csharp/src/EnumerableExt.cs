@@ -155,4 +155,34 @@ public static class EnumerableExt
                                maxDelay,
                                cancellationToken);
   }
+
+  /// <summary>
+  ///   Converts an <see cref="IAsyncEnumerable{T}" /> instance into an <see cref="IEnumerable{T}" /> that enumerates
+  ///   elements in a blocking manner.
+  /// </summary>
+  /// <param name="source">The source enumerable being iterated.</param>
+  /// <typeparam name="T">The type of the objects being iterated.</typeparam>
+  /// <returns>
+  ///   An <see cref="IAsyncEnumerable{T}" /> instance that enumerates the source <see cref="IAsyncEnumerable{T}" />
+  ///   in a blocking manner.
+  /// </returns>
+  [PublicAPI]
+  public static IEnumerable<T> ToBlocking<T>(this IAsyncEnumerable<T> source)
+  {
+    var enumerator = source.GetAsyncEnumerator();
+
+    try
+    {
+      while (enumerator.MoveNextAsync()
+                       .WaitSync())
+      {
+        yield return enumerator.Current;
+      }
+    }
+    finally
+    {
+      enumerator.DisposeAsync()
+                .WaitSync();
+    }
+  }
 }
