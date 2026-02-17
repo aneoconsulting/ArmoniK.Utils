@@ -180,12 +180,10 @@ public class MarkdownDocGenerator
   ///   <c>&lt;code&gt;</c> without preserving nested structure.
   /// </remarks>
   private static string ExtractInlineText(SyntaxList<XmlNodeSyntax> nodes)
-  {
-    return string.Concat(nodes.OfType<XmlTextSyntax>()
-                              .SelectMany(t => t.TextTokens)
-                              .Select(t => t.Text.Trim()))
-                 .Trim();
-  }
+    => string.Concat(nodes.OfType<XmlTextSyntax>()
+                          .SelectMany(t => t.TextTokens)
+                          .Select(t => t.Text.Trim()))
+             .Trim();
 
   /// <summary>
   ///   Generates a whitespace indentation string based on the specified level.
@@ -201,10 +199,8 @@ public class MarkdownDocGenerator
   ///   such as bullet lists, with consistent indentation.
   /// </remarks>
   private static string Indent(int level)
-  {
-    return new string(' ',
-                      level * 2);
-  }
+    => new(' ',
+           level * 2);
 
   /// <summary>
   ///   Recursively renders a collection of XML documentation nodes into
@@ -370,7 +366,6 @@ public class MarkdownDocGenerator
     return builder.ToString()
                   .Trim();
   }
-
 
 
   // Get the default value for common value types
