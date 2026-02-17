@@ -164,23 +164,178 @@ public class MarkdownDocGenerator
   }
 
   /// <summary>
-  ///   Extracts the XML documentation associated with a syntax node.
+  ///   Extracts and concatenates plain text content from a collection of
+  ///   XML documentation nodes.
   /// </summary>
-  /// <param name="node">
-  ///   The <see cref="SyntaxNode" /> to inspect (e.g., property, enum member).
-  /// </param>
-  /// <param name="sectionName">
-  ///   The name of the section to extract.
+  /// <param name="nodes">
+  ///   The XML nodes from which inline text should be extracted.
   /// </param>
   /// <returns>
-  ///   The contents of the <c>&lt;sectionName&gt;</c> XML documentation element as plain text,
-  ///   or <c>null</c> if no section with the given name is found.
+  ///   A trimmed string containing the concatenated text content of all
+  ///   <see cref="XmlTextSyntax" /> nodes.
   /// </returns>
+  /// <remarks>
+  ///   This method is primarily used for extracting the inner text of
+  ///   elements such as <c>&lt;item&gt;</c>, <c>&lt;c&gt;</c>, and
+  ///   <c>&lt;code&gt;</c> without preserving nested structure.
+  /// </remarks>
+  private static string ExtractInlineText(SyntaxList<XmlNodeSyntax> nodes)
+    => string.Concat(nodes.OfType<XmlTextSyntax>()
+                          .SelectMany(t => t.TextTokens)
+                          .Select(t => t.Text.Trim()))
+             .Trim();
+
+  /// <summary>
+  ///   Generates a whitespace indentation string based on the specified level.
+  /// </summary>
+  /// <param name="level">
+  ///   The indentation depth.
+  /// </param>
+  /// <returns>
+  ///   A string containing two spaces per indentation level.
+  /// </returns>
+  /// <remarks>
+  ///   This helper method is used to format nested Markdown structures,
+  ///   such as bullet lists, with consistent indentation.
+  /// </remarks>
+  private static string Indent(int level)
+    => new(' ',
+           level * 2);
+
+  /// <summary>
+  ///   Recursively renders a collection of XML documentation nodes into
+  ///   Markdown-formatted text.
+  /// </summary>
+  /// <param name="nodes">
+  ///   The XML nodes to render.
+  /// </param>
+  /// <param name="builder">
+  ///   The <see cref="StringBuilder" /> used to accumulate the Markdown output.
+  /// </param>
+  /// <param name="indentLevel">
+  ///   The current indentation level used for nested structures such as lists.
+  /// </param>
+  /// <remarks>
+  ///   This method walks the Roslyn XML documentation syntax tree and converts
+  ///   supported elements into Markdown.
+  ///   <para>
+  ///     Supported XML elements:
+  ///     <list type="bullet">
+  ///       <item><c>&lt;para&gt;</c> → Paragraph separation</item>
+  ///       <item><c>&lt;list&gt;</c> → Markdown bullet list</item>
+  ///       <item><c>&lt;item&gt;</c> → Markdown list item</item>
+  ///       <item><c>&lt;c&gt;</c> and <c>&lt;code&gt;</c> → Inline code formatting</item>
+  ///     </list>
+  ///   </para>
+  ///   Unknown or unsupported elements are recursively processed to preserve text content.
+  /// </remarks>
+  private static void RenderXmlNodes(SyntaxList<XmlNodeSyntax> nodes,
+                                     StringBuilder             builder,
+                                     int                       indentLevel)
+  {
+    foreach (var node in nodes)
+    {
+      switch (node)
+      {
+        case XmlTextSyntax text:
+        {
+          var lines = text.TextTokens.Select(t => t.Text.Replace("///",
+                                                                 "")
+                                                   .Trim())
+                          .Where(t => !string.IsNullOrWhiteSpace(t));
+
+          foreach (var line in lines)
+          {
+            builder.AppendLine($"{Indent(indentLevel)}{line}");
+          }
+
+          break;
+        }
+
+        case XmlElementSyntax element:
+        {
+          var name = element.StartTag.Name.ToString();
+
+          switch (name)
+          {
+            case "para":
+              builder.AppendLine();
+              RenderXmlNodes(element.Content,
+                             builder,
+                             indentLevel);
+              builder.AppendLine();
+              break;
+
+            case "list":
+              RenderXmlNodes(element.Content,
+                             builder,
+                             indentLevel);
+              break;
+
+            case "item":
+            {
+              var itemText = ExtractInlineText(element.Content);
+              builder.AppendLine($"{Indent(indentLevel)}- {itemText}");
+              break;
+            }
+
+            case "c":
+            case "code":
+            {
+              var codeText = ExtractInlineText(element.Content);
+              builder.Append($"`{codeText}`");
+              break;
+            }
+
+            default:
+              RenderXmlNodes(element.Content,
+                             builder,
+                             indentLevel);
+              break;
+          }
+
+          break;
+        }
+      }
+    }
+  }
+
+  /// <summary>
+  ///   Extracts a specific XML documentation section from the given <see cref="SyntaxNode" />
+  ///   and converts it into Markdown-formatted text.
+  /// </summary>
+  /// <param name="node">
+  ///   The syntax node (e.g., property, enum member, class) whose XML documentation
+  ///   should be inspected.
+  /// </param>
+  /// <param name="sectionName">
+  ///   The name of the XML documentation section to extract (e.g., <c>summary</c>,
+  ///   <c>remarks</c>, <c>example</c>).
+  /// </param>
+  /// <returns>
+  ///   A Markdown-formatted string representing the content of the requested XML
+  ///   documentation section, or <c>null</c> if the section is not found.
+  /// </returns>
+  /// <remarks>
+  ///   This method parses structured XML documentation using Roslyn's
+  ///   <see cref="DocumentationCommentTriviaSyntax" /> instead of flattening raw text.
+  ///   <para>
+  ///     It supports:
+  ///     <list type="bullet">
+  ///       <item>Multiple sections of the same type (e.g., multiple <c>&lt;remarks&gt;</c>)</item>
+  ///       <item>Bullet lists via <c>&lt;list type="bullet"&gt;</c></item>
+  ///       <item>List items via <c>&lt;item&gt;</c></item>
+  ///       <item>Paragraphs via <c>&lt;para&gt;</c></item>
+  ///       <item>Inline code via <c>&lt;c&gt;</c> and <c>&lt;code&gt;</c></item>
+  ///     </list>
+  ///   </para>
+  ///   The extracted content is rendered as Markdown and normalized for indentation.
+  /// </remarks>
   private static string? GetXmlDocumentation(SyntaxNode node,
                                              string     sectionName = "summary")
   {
     var xmlComment = node.GetLeadingTrivia()
-                         .Select(trivia => trivia.GetStructure())
+                         .Select(t => t.GetStructure())
                          .OfType<DocumentationCommentTriviaSyntax>()
                          .FirstOrDefault();
 
@@ -189,7 +344,6 @@ public class MarkdownDocGenerator
       return null;
     }
 
-    // Find all matching sections
     var sections = xmlComment.Content.OfType<XmlElementSyntax>()
                              .Where(e => e.StartTag.Name.ToString() == sectionName)
                              .ToList();
@@ -199,20 +353,18 @@ public class MarkdownDocGenerator
       return null;
     }
 
-    var allSections = sections.Select(section => section.Content.ToFullString()
-                                                        .Trim())
-                              .ToList();
+    var builder = new StringBuilder();
 
-    var cleanedSections = allSections.SelectMany(section => section.Split(['\r', '\n'],
-                                                                          StringSplitOptions.RemoveEmptyEntries))
-                                     .Select(line => line.Replace("///",
-                                                                  "")
-                                                         .Trim())
-                                     .Where(line => !string.IsNullOrWhiteSpace(line))
-                                     .ToList();
+    foreach (var section in sections)
+    {
+      RenderXmlNodes(section.Content,
+                     builder,
+                     1);
+      builder.AppendLine();
+    }
 
-    return string.Join("\n",
-                       cleanedSections);
+    return builder.ToString()
+                  .Trim();
   }
 
 
