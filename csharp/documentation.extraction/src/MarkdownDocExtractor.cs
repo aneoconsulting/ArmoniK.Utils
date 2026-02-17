@@ -275,7 +275,7 @@ public class MarkdownDocGenerator
             case "item":
             {
               var itemText = ExtractInlineText(element.Content);
-              builder.AppendLine($"{Indent(indentLevel)}- `{itemText}`");
+              builder.AppendLine($"{Indent(indentLevel)}- {itemText}");
               break;
             }
 
