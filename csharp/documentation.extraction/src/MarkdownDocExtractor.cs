@@ -252,6 +252,52 @@ public class MarkdownDocGenerator
           break;
         }
 
+        case XmlEmptyElementSyntax emptyElement:
+        {
+          var name = emptyElement.Name.ToString();
+
+          switch (name)
+          {
+            case "see":
+            case "seealso":
+            {
+              var crefAttr = emptyElement.Attributes.OfType<XmlCrefAttributeSyntax>()
+                                         .FirstOrDefault();
+              if (crefAttr != null)
+              {
+                builder.Append($"`{crefAttr.Cref}`");
+              }
+              else
+              {
+                var textAttr = emptyElement.Attributes.OfType<XmlTextAttributeSyntax>()
+                                            .FirstOrDefault();
+                if (textAttr != null)
+                {
+                  var value = string.Concat(textAttr.TextTokens.Select(t => t.Text));
+                  builder.Append($"`{value}`");
+                }
+              }
+
+              break;
+            }
+
+            case "paramref":
+            case "typeparamref":
+            {
+              var nameAttr = emptyElement.Attributes.OfType<XmlNameAttributeSyntax>()
+                                          .FirstOrDefault();
+              if (nameAttr != null)
+              {
+                builder.Append($"`{nameAttr.Identifier.Identifier.Text}`");
+              }
+
+              break;
+            }
+          }
+
+          break;
+        }
+
         case XmlElementSyntax element:
         {
           var name = element.StartTag.Name.ToString();
@@ -284,6 +330,37 @@ public class MarkdownDocGenerator
             {
               var codeText = ExtractInlineText(element.Content);
               builder.Append($"`{codeText}`");
+              break;
+            }
+
+            case "see":
+            case "seealso":
+            {
+              var crefAttr = element.StartTag.Attributes.OfType<XmlCrefAttributeSyntax>()
+                                     .FirstOrDefault();
+              var innerText = ExtractInlineText(element.Content);
+              if (!string.IsNullOrEmpty(innerText))
+              {
+                builder.Append($"`{innerText}`");
+              }
+              else if (crefAttr != null)
+              {
+                builder.Append($"`{crefAttr.Cref}`");
+              }
+
+              break;
+            }
+
+            case "paramref":
+            case "typeparamref":
+            {
+              var nameAttr = element.StartTag.Attributes.OfType<XmlNameAttributeSyntax>()
+                                     .FirstOrDefault();
+              if (nameAttr != null)
+              {
+                builder.Append($"`{nameAttr.Identifier.Identifier.Text}`");
+              }
+
               break;
             }
 
