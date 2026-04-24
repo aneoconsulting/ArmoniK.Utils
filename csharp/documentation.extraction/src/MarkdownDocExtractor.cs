@@ -270,7 +270,7 @@ public class MarkdownDocGenerator
               else
               {
                 var textAttr = emptyElement.Attributes.OfType<XmlTextAttributeSyntax>()
-                                            .FirstOrDefault();
+                                           .FirstOrDefault();
                 if (textAttr != null)
                 {
                   var value = string.Concat(textAttr.TextTokens.Select(t => t.Text));
@@ -285,7 +285,7 @@ public class MarkdownDocGenerator
             case "typeparamref":
             {
               var nameAttr = emptyElement.Attributes.OfType<XmlNameAttributeSyntax>()
-                                          .FirstOrDefault();
+                                         .FirstOrDefault();
               if (nameAttr != null)
               {
                 builder.Append($"`{nameAttr.Identifier.Identifier.Text}`");
@@ -337,7 +337,7 @@ public class MarkdownDocGenerator
             case "seealso":
             {
               var crefAttr = element.StartTag.Attributes.OfType<XmlCrefAttributeSyntax>()
-                                     .FirstOrDefault();
+                                    .FirstOrDefault();
               var innerText = ExtractInlineText(element.Content);
               if (!string.IsNullOrEmpty(innerText))
               {
@@ -355,7 +355,7 @@ public class MarkdownDocGenerator
             case "typeparamref":
             {
               var nameAttr = element.StartTag.Attributes.OfType<XmlNameAttributeSyntax>()
-                                     .FirstOrDefault();
+                                    .FirstOrDefault();
               if (nameAttr != null)
               {
                 builder.Append($"`{nameAttr.Identifier.Identifier.Text}`");
