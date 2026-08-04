@@ -6,6 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>ArmoniK.Utils.DocExtractor</RootNamespace>
+    <Company>ANEO</Company>
+    <Copyright>Copyright (C) ANEO, 2022-2026</Copyright>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>armonik.utils.docextractor</ToolCommandName>
   </PropertyGroup>
