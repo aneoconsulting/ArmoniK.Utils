@@ -466,9 +466,14 @@ public class MarkdownDocGenerator
   /// <param name="builder">The output buffer used to collect flattened property definitions.</param>
   /// <param name="classDecl">The class whose properties will be inspected.</param>
   /// <param name="prefix">The name prefix used to construct the flattened property path.</param>
+  /// <param name="anchorPrefix">
+  ///   The name prefix, free of Markdown syntax, used to construct the anchor id
+  ///   that allows the option to be linked to directly.
+  /// </param>
   private void FlattenProperties(StringBuilder           builder,
                                  ClassDeclarationSyntax? classDecl,
-                                 string                  prefix)
+                                 string                  prefix,
+                                 string                  anchorPrefix)
   {
     if (classDecl == null)
     {
@@ -480,6 +485,7 @@ public class MarkdownDocGenerator
       var typeName     = property.Type.ToString();
       var propertyName = property.Identifier.Text;
       var fullName     = $"{prefix}__{propertyName}";
+      var anchorName   = $"{anchorPrefix}__{propertyName}";
 
       var initializer = property.Initializer;
 
@@ -504,12 +510,14 @@ public class MarkdownDocGenerator
           fullName = $"{prefix}__[{propertyName}](#{markdownLink})";
           FlattenProperties(builder,
                             memberDecl as ClassDeclarationSyntax,
-                            fullName);
+                            fullName,
+                            anchorName);
           continue;
         }
       }
 
-      builder.AppendLine($"\n- **{fullName}**: {typeName} (default: `{defaultValue}`)\n");
+      var anchor = anchorName.ToLower();
+      builder.AppendLine($"\n- <a id=\"{anchor}\"></a>**{fullName}**: {typeName} (default: `{defaultValue}`) <a href=\"#{anchor}\">¶</a>\n");
       foreach (var sectionName in sectionsToExtract_)
       {
         var section = GetXmlDocumentation(property,
@@ -543,6 +551,7 @@ public class MarkdownDocGenerator
         {
           FlattenProperties(markdownBuilder,
                             classDecl,
+                            classDecl.Identifier.Text,
                             classDecl.Identifier.Text);
           break;
         }
@@ -550,8 +559,9 @@ public class MarkdownDocGenerator
         {
           foreach (var member in enumDecl.Members)
           {
-            var name = member.Identifier.Text;
-            markdownBuilder.AppendLine($"\n- **{name}**\n");
+            var name   = member.Identifier.Text;
+            var anchor = $"{enumDecl.Identifier.Text}__{name}".ToLower();
+            markdownBuilder.AppendLine($"\n- <a id=\"{anchor}\"></a>**{name}** <a href=\"#{anchor}\">¶</a>\n");
 
             foreach (var sectionName in sectionsToExtract_)
             {
