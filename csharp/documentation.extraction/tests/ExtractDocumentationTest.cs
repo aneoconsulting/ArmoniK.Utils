@@ -177,31 +177,31 @@ public class NestedClassAndEnumsExtractionTests : ExtractionTestBase
     const string expected = """
                             ## Options for Awesome Class
 
-                            - **AwesomeClass__[Help](#options-for-helper-class)__Path**: string (default: `"localhost"`)
+                            - <a id="awesomeclass__help__path"></a>**AwesomeClass__[Help](#options-for-helper-class)__Path**: string (default: `"localhost"`) <a href="#awesomeclass__help__path">¶</a>
 
                                 This is a test property
 
-                            - **AwesomeClass__[Help](#options-for-helper-class)__Port**: int (default: `666`)
+                            - <a id="awesomeclass__help__port"></a>**AwesomeClass__[Help](#options-for-helper-class)__Port**: int (default: `666`) <a href="#awesomeclass__help__port">¶</a>
 
                                 This is another test property
 
                             ## Options for Helper Class
 
-                            - **HelperClass__Path**: string (default: `"localhost"`)
+                            - <a id="helperclass__path"></a>**HelperClass__Path**: string (default: `"localhost"`) <a href="#helperclass__path">¶</a>
 
                                 This is a test property
 
-                            - **HelperClass__Port**: int (default: `666`)
+                            - <a id="helperclass__port"></a>**HelperClass__Port**: int (default: `666`) <a href="#helperclass__port">¶</a>
 
                                 This is another test property
 
                             ## Options for Enum
 
-                            - **Member1**
+                            - <a id="helperenum__member1"></a>**Member1** <a href="#helperenum__member1">¶</a>
 
                                 This is a test member
 
-                            - **Member2**
+                            - <a id="helperenum__member2"></a>**Member2** <a href="#helperenum__member2">¶</a>
 
                                 This is another test member
 
@@ -249,34 +249,34 @@ public class DefaultValuesExtractionTests : ExtractionTestBase
     const string expected = """
                             ## Test Default Values Class
 
-                            - **TestDefaultsHelperClass__MyInt**: int (default: `0`)
+                            - <a id="testdefaultshelperclass__myint"></a>**TestDefaultsHelperClass__MyInt**: int (default: `0`) <a href="#testdefaultshelperclass__myint">¶</a>
 
 
-                            - **TestDefaultsHelperClass__MyBool**: bool (default: `false`)
+                            - <a id="testdefaultshelperclass__mybool"></a>**TestDefaultsHelperClass__MyBool**: bool (default: `false`) <a href="#testdefaultshelperclass__mybool">¶</a>
 
 
-                            - **TestDefaultsHelperClass__myFloat**: float (default: `0.0f`)
+                            - <a id="testdefaultshelperclass__myfloat"></a>**TestDefaultsHelperClass__myFloat**: float (default: `0.0f`) <a href="#testdefaultshelperclass__myfloat">¶</a>
 
 
-                            - **TestDefaultsHelperClass__myDouble**: double (default: `0.0`)
+                            - <a id="testdefaultshelperclass__mydouble"></a>**TestDefaultsHelperClass__myDouble**: double (default: `0.0`) <a href="#testdefaultshelperclass__mydouble">¶</a>
 
 
-                            - **TestDefaultsHelperClass__myDecimal**: decimal (default: `0.0m`)
+                            - <a id="testdefaultshelperclass__mydecimal"></a>**TestDefaultsHelperClass__myDecimal**: decimal (default: `0.0m`) <a href="#testdefaultshelperclass__mydecimal">¶</a>
 
 
-                            - **TestDefaultsHelperClass__myChar**: char (default: `'\0'`)
+                            - <a id="testdefaultshelperclass__mychar"></a>**TestDefaultsHelperClass__myChar**: char (default: `'\0'`) <a href="#testdefaultshelperclass__mychar">¶</a>
 
 
-                            - **TestDefaultsHelperClass__MyString**: string (default: ``)
+                            - <a id="testdefaultshelperclass__mystring"></a>**TestDefaultsHelperClass__MyString**: string (default: ``) <a href="#testdefaultshelperclass__mystring">¶</a>
 
 
-                            - **TestDefaultsHelperClass__MyNullableString**: string? (default: `null`)
+                            - <a id="testdefaultshelperclass__mynullablestring"></a>**TestDefaultsHelperClass__MyNullableString**: string? (default: `null`) <a href="#testdefaultshelperclass__mynullablestring">¶</a>
 
 
-                            - **TestDefaultsHelperClass__MyCharList**: List<char> (default: `null`)
+                            - <a id="testdefaultshelperclass__mycharlist"></a>**TestDefaultsHelperClass__MyCharList**: List<char> (default: `null`) <a href="#testdefaultshelperclass__mycharlist">¶</a>
 
 
-                            - **TestDefaultsHelperClass__MyIntList**: List<char> (default: `()`)
+                            - <a id="testdefaultshelperclass__myintlist"></a>**TestDefaultsHelperClass__MyIntList**: List<char> (default: `()`) <a href="#testdefaultshelperclass__myintlist">¶</a>
                             """;
 
     Assert.That(Normalize(markdown),
@@ -322,7 +322,7 @@ public class XmlSectionsExtractionTests : ExtractionTestBase
     const string expected = """
                             ## Test XML Section extraction Class
 
-                            - **HelperClass__belphegorPrime**: int (default: `1000000000000066600000000000001`)
+                            - <a id="helperclass__belphegorprime"></a>**HelperClass__belphegorPrime**: int (default: `1000000000000066600000000000001`) <a href="#helperclass__belphegorprime">¶</a>
 
                                 Belphegor's prime is a palindromic prime number
                                 There is a whole sequence of primes like it
