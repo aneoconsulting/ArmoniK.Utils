@@ -165,7 +165,7 @@ public class ChunkTest
                                    int              chunkSize)
   {
     var lastLength = chunkSize;
-    await foreach (var chunk in enumerable.ToAsyncEnumerable()
+    await foreach (var chunk in enumerable.ToAsync()
                                           .ToChunksAsync(chunkSize,
                                                          TimeSpan.FromMilliseconds(100)))
     {
@@ -198,7 +198,7 @@ public class ChunkTest
   {
     var i = 0;
 
-    foreach (var chunk in await array.ToAsyncEnumerable()
+    foreach (var chunk in await array.ToAsync()
                                      .ToChunksAsync(chunkSize,
                                                     TimeSpan.FromMilliseconds(100))
                                      .ToListAsync()
@@ -254,7 +254,7 @@ public class ChunkTest
     var enumerable = arraySize is not null
                        ? Enumerable.Range(0,
                                           (int)arraySize)
-                                   .ToAsyncEnumerable()
+                                   .ToAsync()
                        : null;
     Assert.That(() => enumerable.ToChunksAsync(chunkSize,
                                                TimeSpan.FromMilliseconds(100))
