@@ -16,7 +16,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 
 using JetBrains.Annotations;
@@ -43,7 +42,7 @@ public static class ParallelSelectExt
   public static IAsyncEnumerable<TOutput> ParallelSelect<TInput, TOutput>(this IEnumerable<TInput>    enumerable,
                                                                           ParallelTaskOptions         parallelTaskOptions,
                                                                           Func<TInput, Task<TOutput>> func)
-    => enumerable.ToAsyncEnumerable()
+    => enumerable.ToAsync()
                  .ParallelSelect(parallelTaskOptions,
                                  func);
 
@@ -118,7 +117,7 @@ public static class ParallelSelectExt
   public static Task ParallelForEach<TInput>(this IEnumerable<TInput> enumerable,
                                              ParallelTaskOptions      parallelTaskOptions,
                                              Func<TInput, Task>       func)
-    => enumerable.ToAsyncEnumerable()
+    => enumerable.ToAsync()
                  .ParallelForEach(parallelTaskOptions,
                                   func);
 
