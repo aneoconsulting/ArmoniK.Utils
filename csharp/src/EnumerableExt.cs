@@ -109,8 +109,14 @@ public static class EnumerableExt
   ///   Split the elements of a sequence into chunks of size at most <paramref name="size" />.
   /// </summary>
   /// <remarks>
-  ///   Every chunk except the last will be of size <paramref name="size" />.
-  ///   The last chunk will contain the remaining elements and may be of a smaller size.
+  ///   <para>
+  ///     Every chunk will be of size <paramref name="size" />, except the last one, and the ones yielded early
+  ///     because of <paramref name="maxDelay" />, which may be of a smaller size.
+  ///   </para>
+  ///   <para>
+  ///     If the source throws, or if the enumeration is cancelled, the elements received so far are yielded before
+  ///     the exception is rethrown. Once cancellation is requested, no more elements are fetched from the source.
+  ///   </para>
   /// </remarks>
   /// <param name="source">
   ///   An <see cref="IEnumerable{T}" /> whose elements to chunk.
@@ -119,7 +125,8 @@ public static class EnumerableExt
   ///   Maximum size of each chunk.
   /// </param>
   /// <param name="maxDelay">
-  ///   Maximum delay between the reading of a value and the yielding of the chunk containing this value.
+  ///   Maximum delay between the reading of a value and the yielding of the chunk containing this value,
+  ///   or <see cref="Timeout.InfiniteTimeSpan" /> to disable the timeout.
   /// </param>
   /// <param name="cancellationToken">
   ///   Cancellation token used for stopping the enumeration.
@@ -132,18 +139,77 @@ public static class EnumerableExt
   ///   <paramref name="size" />.
   /// </returns>
   /// <exception cref="ArgumentOutOfRangeException">
-  ///   <paramref name="size" /> is below 1.
+  ///   <paramref name="size" /> is below 1, or <paramref name="maxDelay" /> is negative (and not infinite) or
+  ///   too large.
   /// </exception>
   [PublicAPI]
   public static IAsyncEnumerable<TSource[]> ToChunksAsync<TSource>(this IAsyncEnumerable<TSource>? source,
                                                                    int                             size,
                                                                    TimeSpan                        maxDelay,
                                                                    CancellationToken               cancellationToken = default)
+    => source.ToChunksAsync(size,
+                            (TimeSpan?)maxDelay,
+                            null,
+                            cancellationToken);
+
+  /// <summary>
+  ///   Split the elements of a sequence into chunks of size at most <paramref name="size" />.
+  /// </summary>
+  /// <remarks>
+  ///   <para>
+  ///     Every chunk will be of size <paramref name="size" />, except the last one, and the ones yielded early
+  ///     because of <paramref name="maxDelay" /> or <paramref name="flusher" />, which may be of a smaller size.
+  ///   </para>
+  ///   <para>
+  ///     When the delay expires or the flusher is triggered, the enumeration stops waiting for the source, but
+  ///     elements that are already available from the source are still added to the chunk. The chunk is yielded at
+  ///     the first opportunity: no chunk can be yielded while the consumer is processing the previous one.
+  ///   </para>
+  ///   <para>
+  ///     If the source throws, or if the enumeration is cancelled, the elements received so far are yielded before
+  ///     the exception is rethrown. Once cancellation is requested, no more elements are fetched from the source.
+  ///   </para>
+  /// </remarks>
+  /// <param name="source">
+  ///   An <see cref="IEnumerable{T}" /> whose elements to chunk.
+  /// </param>
+  /// <param name="size">
+  ///   Maximum size of each chunk.
+  /// </param>
+  /// <param name="maxDelay">
+  ///   Maximum delay between the reading of a value and the yielding of the chunk containing this value.
+  ///   <c>null</c> or <see cref="Timeout.InfiniteTimeSpan" /> disables the timeout.
+  /// </param>
+  /// <param name="flusher">
+  ///   Optional trigger to yield the elements currently buffered early.
+  /// </param>
+  /// <param name="cancellationToken">
+  ///   Cancellation token used for stopping the enumeration.
+  /// </param>
+  /// <typeparam name="TSource">
+  ///   The type of the elements of source.
+  /// </typeparam>
+  /// <returns>
+  ///   An <see cref="IEnumerable{T}" /> that contains the elements the input sequence split into chunks of size
+  ///   <paramref name="size" />.
+  /// </returns>
+  /// <exception cref="ArgumentOutOfRangeException">
+  ///   <paramref name="size" /> is below 1, or <paramref name="maxDelay" /> is negative (and not infinite) or
+  ///   too large.
+  /// </exception>
+  [PublicAPI]
+  public static IAsyncEnumerable<TSource[]> ToChunksAsync<TSource>(this IAsyncEnumerable<TSource>? source,
+                                                                   int                             size,
+                                                                   TimeSpan?                       maxDelay          = null,
+                                                                   ChunkFlusher?                   flusher           = null,
+                                                                   CancellationToken               cancellationToken = default)
   {
     if (size < 1)
     {
       throw new ArgumentOutOfRangeException(nameof(size));
     }
+
+    var delay = Rechunker.ValidateMaxDelay(maxDelay);
 
     if (source is null)
     {
@@ -152,7 +218,8 @@ public static class EnumerableExt
 
     return Chunk.IteratorAsync(source,
                                size,
-                               maxDelay,
+                               delay,
+                               flusher,
                                cancellationToken);
   }
 

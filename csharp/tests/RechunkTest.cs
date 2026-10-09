@@ -17,6 +17,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -54,10 +55,18 @@ public class RechunkTest
       {
         for (var seed = 0; seed < 10; ++seed)
         {
-          yield return new TestCaseData(min,
-                                        max,
-                                        maxInputSize,
-                                        seed).SetArgDisplayNames($"[{min}, {max}], input <= {maxInputSize}, seed {seed}");
+          foreach (var timed in new[]
+                                {
+                                  false,
+                                  true,
+                                })
+          {
+            yield return new TestCaseData(min,
+                                          max,
+                                          maxInputSize,
+                                          seed,
+                                          timed).SetArgDisplayNames($"[{min}, {max}], input <= {maxInputSize}, seed {seed}, timed {timed}");
+          }
         }
       }
     }
@@ -102,6 +111,19 @@ public class RechunkTest
     }
   }
 
+  // Rechunk without timeout, or through the timed code path with a timeout that never expires
+  private static IAsyncEnumerable<ReadOnlyMemory<int>> Rechunk(IAsyncEnumerable<ReadOnlyMemory<int>> source,
+                                                               int                                   min,
+                                                               int                                   max,
+                                                               bool                                  timed)
+    => timed
+         ? source.Rechunk(min,
+                          max,
+                          TimeSpan.FromHours(1),
+                          new ChunkFlusher())
+         : source.Rechunk(min,
+                          max);
+
   private static void CheckSizes(IReadOnlyList<int> sizes,
                                  int                min,
                                  int                max)
@@ -127,17 +149,19 @@ public class RechunkTest
 
   [Test]
   [TestCaseSource(nameof(RandomCases))]
-  public async Task RechunkPreservesContentAndBounds(int min,
-                                                     int max,
-                                                     int maxInputSize,
-                                                     int seed)
+  public async Task RechunkPreservesContentAndBounds(int  min,
+                                                     int  max,
+                                                     int  maxInputSize,
+                                                     int  seed,
+                                                     bool timed)
   {
     var input = RandomChunks(maxInputSize,
                              seed);
 
-    var output = await ToMemories(input)
-                       .Rechunk(min,
-                                max)
+    var output = await Rechunk(ToMemories(input),
+                               min,
+                               max,
+                               timed)
                        .ToListAsync()
                        .ConfigureAwait(false);
 
@@ -151,20 +175,22 @@ public class RechunkTest
 
   [Test]
   [TestCaseSource(nameof(RandomCases))]
-  public async Task RechunkWithReusedSourceMemory(int min,
-                                                  int max,
-                                                  int maxInputSize,
-                                                  int seed)
+  public async Task RechunkWithReusedSourceMemory(int  min,
+                                                  int  max,
+                                                  int  maxInputSize,
+                                                  int  seed,
+                                                  bool timed)
   {
     var input = RandomChunks(maxInputSize,
                              seed);
 
     // Each chunk must be consumed before requesting the next one, as the source reuses its memory
     var output = new List<int[]>();
-    await foreach (var chunk in ToReusedMemory(input)
-                                .Rechunk(min,
-                                         max)
-                                .ConfigureAwait(false))
+    await foreach (var chunk in Rechunk(ToReusedMemory(input),
+                                        min,
+                                        max,
+                                        timed)
+                     .ConfigureAwait(false))
     {
       output.Add(chunk.ToArray());
     }
@@ -400,21 +426,94 @@ public class RechunkTest
                          .EqualTo(paramName));
 
   [Test]
-  public void SourceExceptionIsPropagated()
+  public async Task BufferedDataIsYieldedBeforeException()
   {
     static async IAsyncEnumerable<ReadOnlyMemory<int>> Throwing()
     {
       await Task.Yield();
-      yield return new int[1];
+      yield return new[]
+                   {
+                     0,
+                   };
       throw new ApplicationException();
     }
 
-    Assert.That(async () => await Throwing()
-                                  .Rechunk(2,
-                                           2)
-                                  .ToListAsync()
-                                  .ConfigureAwait(false),
+    await using var enumerator = Throwing()
+                                 .Rechunk(2,
+                                          2)
+                                 .GetAsyncEnumerator();
+
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.True);
+    Assert.That(enumerator.Current.ToArray(),
+                Is.EqualTo(new[]
+                           {
+                             0,
+                           }));
+    Assert.That(async () => await enumerator.MoveNextAsync()
+                                            .ConfigureAwait(false),
                 Throws.InstanceOf<ApplicationException>());
+  }
+
+  [Test]
+  public async Task CancellationYieldsReceivedDataWithoutFetchingMore()
+  {
+    using var cts     = new CancellationTokenSource();
+    var       fetched = 0;
+
+    async IAsyncEnumerable<ReadOnlyMemory<int>> Source()
+    {
+      await Task.Yield();
+      fetched++;
+      yield return Enumerable.Range(0,
+                                    7)
+                             .ToArray();
+      fetched++;
+      yield return new int[2];
+    }
+
+    var output = new List<int[]>();
+    Assert.That(async () =>
+                {
+                  await foreach (var chunk in Source()
+                                              .Rechunk(2,
+                                                       2)
+                                              .WithCancellation(cts.Token)
+                                              .ConfigureAwait(false))
+                  {
+                    output.Add(chunk.ToArray());
+                    cts.Cancel();
+                  }
+                },
+                Throws.InstanceOf<OperationCanceledException>());
+
+    // The whole first input chunk is yielded (the last element through the buffer), but the second is never fetched
+    Assert.That(output,
+                Is.EqualTo(new[]
+                           {
+                             new[]
+                             {
+                               0,
+                               1,
+                             },
+                             new[]
+                             {
+                               2,
+                               3,
+                             },
+                             new[]
+                             {
+                               4,
+                               5,
+                             },
+                             new[]
+                             {
+                               6,
+                             },
+                           }));
+    Assert.That(fetched,
+                Is.EqualTo(1));
   }
 
   [Test]
@@ -471,6 +570,338 @@ public class RechunkTest
                                      1)
                             .ConfigureAwait(false))
     {
+      break;
+    }
+
+    Assert.That(disposed,
+                Is.True);
+  }
+
+  // -1 ms is Timeout.InfiniteTimeSpan, which is valid
+  [TestCase(-2)]
+  [TestCase(30L * 24 * 3600 * 1000)]
+  public void InvalidMaxDelayThrows(long delayMs)
+    => Assert.That(() => ToMemories(Array.Empty<int[]>())
+                     .Rechunk(1,
+                              1,
+                              TimeSpan.FromMilliseconds(delayMs)),
+                   Throws.InstanceOf<ArgumentOutOfRangeException>()
+                         .With.Property(nameof(ArgumentException.ParamName))
+                         .EqualTo("maxDelay"));
+
+  // Source yielding the given chunks, then waiting for the gate before yielding the last ones
+  private static async IAsyncEnumerable<ReadOnlyMemory<int>> Gated(int[][]                                    before,
+                                                                   Task                                       gate,
+                                                                   int[][]                                    after,
+                                                                   [EnumeratorCancellation] CancellationToken cancellationToken = default)
+  {
+    await Task.Yield();
+    foreach (var chunk in before)
+    {
+      yield return chunk;
+    }
+
+    // Task.WaitAsync is not available on .NET Framework
+    await Task.WhenAny(gate,
+                       Task.Delay(Timeout.Infinite,
+                                  cancellationToken))
+              .ConfigureAwait(false);
+    cancellationToken.ThrowIfCancellationRequested();
+    foreach (var chunk in after)
+    {
+      yield return chunk;
+    }
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task FlushYieldsBufferedData()
+  {
+    var flusher = new ChunkFlusher();
+    var gate    = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    await using var enumerator = Gated(new[]
+                                       {
+                                         new[]
+                                         {
+                                           0,
+                                           1,
+                                         },
+                                       },
+                                       gate.Task,
+                                       new[]
+                                       {
+                                         new[]
+                                         {
+                                           2,
+                                           3,
+                                           4,
+                                         },
+                                       })
+                                 .Rechunk(4,
+                                          8,
+                                          flusher: flusher)
+                                 .GetAsyncEnumerator();
+
+    // [0, 1] is buffered and the source is waiting: nothing can be yielded
+    var move = enumerator.MoveNextAsync();
+    await Task.Delay(100)
+              .ConfigureAwait(false);
+    Assert.That(move.IsCompleted,
+                Is.False);
+
+    flusher.Flush();
+    Assert.That(await move.ConfigureAwait(false),
+                Is.True);
+    Assert.That(enumerator.Current.ToArray(),
+                Is.EqualTo(new[]
+                           {
+                             0,
+                             1,
+                           }));
+
+    gate.SetResult(true);
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.True);
+    Assert.That(enumerator.Current.ToArray(),
+                Is.EqualTo(new[]
+                           {
+                             2,
+                             3,
+                             4,
+                           }));
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.False);
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task FlushWithEmptyBufferIsIgnored()
+  {
+    var flusher = new ChunkFlusher();
+    var gate    = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    await using var enumerator = Gated(new[]
+                                       {
+                                         new[]
+                                         {
+                                           0,
+                                         },
+                                       },
+                                       gate.Task,
+                                       Array.Empty<int[]>())
+                                 .Rechunk(4,
+                                          8,
+                                          flusher: flusher)
+                                 .GetAsyncEnumerator();
+
+    // Nothing is buffered yet: this request must not affect the data buffered afterward
+    flusher.Flush();
+
+    var move = enumerator.MoveNextAsync();
+    await Task.Delay(100)
+              .ConfigureAwait(false);
+    Assert.That(move.IsCompleted,
+                Is.False);
+
+    flusher.Flush();
+    Assert.That(await move.ConfigureAwait(false),
+                Is.True);
+    Assert.That(enumerator.Current.ToArray(),
+                Is.EqualTo(new[]
+                           {
+                             0,
+                           }));
+
+    gate.SetResult(true);
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.False);
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task TimeoutYieldsBufferedData()
+  {
+    var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    await using var enumerator = Gated(new[]
+                                       {
+                                         new[]
+                                         {
+                                           0,
+                                           1,
+                                         },
+                                       },
+                                       gate.Task,
+                                       Array.Empty<int[]>())
+                                 .Rechunk(4,
+                                          8,
+                                          TimeSpan.FromMilliseconds(100))
+                                 .GetAsyncEnumerator();
+
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.True);
+    Assert.That(enumerator.Current.ToArray(),
+                Is.EqualTo(new[]
+                           {
+                             0,
+                             1,
+                           }));
+
+    gate.SetResult(true);
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.False);
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task DeadlineStartsAtInputArrival()
+  {
+    var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    // 5 elements with [3, 4]: a slice of 4 is yielded, and the last element is buffered
+    await using var enumerator = Gated(new[]
+                                       {
+                                         Enumerable.Range(0,
+                                                          5)
+                                                   .ToArray(),
+                                       },
+                                       gate.Task,
+                                       Array.Empty<int[]>())
+                                 .Rechunk(3,
+                                          4,
+                                          TimeSpan.FromMilliseconds(1000))
+                                 .GetAsyncEnumerator();
+
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.True);
+    Assert.That(enumerator.Current.Length,
+                Is.EqualTo(4));
+
+    // The consumer is slower than maxDelay: the remainder has been waiting since the arrival of its input chunk
+    await Task.Delay(1100)
+              .ConfigureAwait(false);
+
+    var sw = Stopwatch.StartNew();
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.True);
+    sw.Stop();
+    Assert.That(enumerator.Current.ToArray(),
+                Is.EqualTo(new[]
+                           {
+                             4,
+                           }));
+    Assert.That(sw.Elapsed,
+                Is.LessThan(TimeSpan.FromMilliseconds(500)));
+
+    gate.SetResult(true);
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.False);
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task AvailableDataIsMergedAfterDeadline()
+  {
+    var flusher = new ChunkFlusher();
+
+    // The source is always ready: a pending flush does not prevent merging what is available
+    async IAsyncEnumerable<ReadOnlyMemory<int>> Source()
+    {
+      await Task.Yield();
+      yield return new[]
+                   {
+                     0,
+                   };
+      flusher.Flush();
+      yield return new[]
+                   {
+                     1,
+                   };
+      yield return new[]
+                   {
+                     2,
+                   };
+    }
+
+    var output = await Source()
+                       .Rechunk(4,
+                                8,
+                                flusher: flusher)
+                       .ToListAsync()
+                       .ConfigureAwait(false);
+
+    // The flush is observed after merging the input chunk available at that time
+    Assert.That(output.Select(chunk => chunk.ToArray()),
+                Is.EqualTo(new[]
+                           {
+                             new[]
+                             {
+                               0,
+                               1,
+                             },
+                             new[]
+                             {
+                               2,
+                             },
+                           }));
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  [TestCase(true)]
+  [TestCase(false)]
+  public async Task EarlyStopWhileSourceIsFetching(bool cancellable)
+  {
+    var disposed = false;
+
+    async IAsyncEnumerable<ReadOnlyMemory<int>> Source([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+      try
+      {
+        await Task.Yield();
+        yield return new[]
+                     {
+                       0,
+                     };
+        await Task.Delay(cancellable
+                           ? Timeout.Infinite
+                           : 200,
+                         cancellable
+                           ? cancellationToken
+                           : CancellationToken.None)
+                  .ConfigureAwait(false);
+        yield return new[]
+                     {
+                       1,
+                     };
+      }
+      finally
+      {
+        disposed = true;
+      }
+    }
+
+    // The first chunk is yielded on timeout, while the source is still fetching the next one
+    await foreach (var chunk in Source()
+                                .Rechunk(4,
+                                         8,
+                                         TimeSpan.FromMilliseconds(50))
+                                .ConfigureAwait(false))
+    {
+      Assert.That(chunk.ToArray(),
+                  Is.EqualTo(new[]
+                             {
+                               0,
+                             }));
       break;
     }
 

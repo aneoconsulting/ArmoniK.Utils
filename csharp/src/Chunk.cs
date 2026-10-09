@@ -16,10 +16,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace ArmoniK.Utils;
 
@@ -79,153 +77,42 @@ internal static class Chunk
   }
 
 
-  internal static async IAsyncEnumerable<T[]> IteratorAsync<T>(IAsyncEnumerable<T>                        enumerable,
-                                                               int                                        size,
-                                                               TimeSpan                                   maxDelay,
-                                                               [EnumeratorCancellation] CancellationToken cancellationToken = default)
+  // Implementation of the ToChunksAsync function, on top of the rechunker
+  internal static IAsyncEnumerable<T[]> IteratorAsync<T>(IAsyncEnumerable<T> enumerable,
+                                                         int                 size,
+                                                         TimeSpan            maxDelay,
+                                                         ChunkFlusher?       flusher,
+                                                         CancellationToken   cancellationToken)
+    => Rechunker.IteratorAsync<T, T, T[], ElementAdapter<T>>(enumerable,
+                                                             default,
+                                                             size,
+                                                             size,
+                                                             maxDelay,
+                                                             flusher,
+                                                             cancellationToken);
+
+  // Present each element to the rechunker as a single element chunk, backed by an array reused for all the elements.
+  // This is safe because the rechunker never keeps an input chunk across a MoveNextAsync of the source.
+  // The array is allocated lazily, so that each enumeration (which works on its own copy of the adapter) has its own.
+  private struct ElementAdapter<T> : Rechunker.IAdapter<T, T, T[]>
   {
-    var                      buffer      = Array.Empty<T>();
-    var                      bufferSize  = 0;
-    Exception?               error       = null;
-    Task?                    timeoutTask = null;
-    CancellationTokenSource? cts         = null;
+    private T[]? box_;
 
-    // Dispose both timeoutTask ans cts, before resetting to null
-    void Clean()
+    public ReadOnlyMemory<T> ToMemory(T item)
     {
-      cts?.Cancel();
-      timeoutTask?.Dispose();
-      cts?.Dispose();
-      timeoutTask = null;
-      cts         = null;
+      box_    ??= new T[1];
+      box_[0] =   item;
+      return box_;
     }
 
-    // Check if cancellation has been requested
-    cancellationToken.ThrowIfCancellationRequested();
-
-    // Manual iteration is necessary in order to take into account the timeout
-    await using var enumerator = enumerable.GetAsyncEnumerator(cancellationToken);
-    var nextTask = enumerator.MoveNextAsync()
-                             .AsTask();
-
-    // Loop over the input enumerable
-    while (true)
-    {
-      // Wait for either the next element or the timeout
-      // If timeoutTask is null, no need to call WhenAny
-      using var which = timeoutTask is null
-                          ? nextTask
-                          : await Task.WhenAny(nextTask,
-                                               timeoutTask)
-                                      .ConfigureAwait(false);
-
-      // If there is an error, record the error and stop looping
-      try
-      {
-        await which.ConfigureAwait(false);
-      }
-      catch (Exception e)
-      {
-        error = e;
-        break;
-      }
-
-      // Timeout has triggered
-      if (ReferenceEquals(which,
-                          timeoutTask))
-      {
-        // If timeout task is not null, there necessarily at least one element in the buffer
-        // But the chunk is not full, otherwise, it would have been yielded before
-        Debug.Assert(bufferSize > 0);
-        Array.Resize(ref buffer,
-                     bufferSize);
-
-        // We can dispose and reset the timeoutTask, now that it has finished
-        timeoutTask.Dispose();
-        timeoutTask = null;
-        yield return buffer;
-
-        // Allocate the new buffer with the previous size
-        // This avoids over-allocations if the number of elements yielded decreases
-        buffer     = new T[bufferSize];
-        bufferSize = 0;
-        continue;
-      }
-
-      // If it was not the timeoutTask, it is necessary nextTask
-      Debug.Assert(ReferenceEquals(which,
-                                   nextTask));
-      if (!await nextTask.ConfigureAwait(false))
-      {
-        break;
-      }
-
-      // If there is no room in the buffer for a new element, a new allocation is required
-      if (bufferSize == buffer.Length)
-      {
-        Debug.Assert(buffer.Length < size);
-        var newLength = Math.Min(Math.Max(buffer.Length + buffer.Length / 2,
-                                          4),
-                                 size);
-
-        Array.Resize(ref buffer,
-                     newLength);
-      }
-
-      // Add the element to the buffer
-      buffer[bufferSize] =  enumerator.Current;
-      bufferSize         += 1;
-
-      // If the chunk is full (ie: buffer full and buffer size = chunk size), yield the chunk
-      if (bufferSize == buffer.Length && bufferSize >= size)
-      {
-        // We can clean the timeoutTask and cts for the next chunk
-        Clean();
-
-        // Yield the current buffer
-        yield return buffer;
-
-        // Reallocate a new buffer with the same size (buffer size should chunk size)
-        buffer     = new T[bufferSize];
-        bufferSize = 0;
-      }
-      else if (timeoutTask is null)
-      {
-        // We added a new element to the chunk, so we need to start the timeout if not already started
-        cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutTask = Task.Delay(maxDelay,
-                                 cts.Token);
-      }
-
-      // Fetch the next element
-      // This can throw before being awaited, so if that is the case, we need to stop the loop
-      try
-      {
-        // Check if cancellation has been requested
-        cancellationToken.ThrowIfCancellationRequested();
-        nextTask = enumerator.MoveNextAsync()
-                             .AsTask();
-      }
-      catch (Exception e)
-      {
-        error = e;
-        break;
-      }
-    }
-
-    // If the chunk is not empty, it must be yield, even if there is an error
-    if (bufferSize > 0)
-    {
-      // The chunk is necessarily not full because it would have been yielded otherwise
-      Array.Resize(ref buffer,
-                   bufferSize);
-      yield return buffer;
-    }
-
-    // We can clean the timeoutTask and cts as it is not needed anymore
-    Clean();
-
-    // If there were any error, the error must be rethrow
-    error?.RethrowWithStacktrace();
+    // Arrays from the rechunker buffer have the exact chunk size and can be returned as is.
+    // Anything else (only the reused array, when size is 1) must be copied.
+    public T[] FromMemory(ReadOnlyMemory<T> chunk)
+      => MemoryMarshal.TryGetArray(chunk,
+                                   out var segment) && !ReferenceEquals(segment.Array,
+                                                                        box_) && segment.Offset == 0 &&
+         segment.Count == segment.Array!.Length
+           ? segment.Array
+           : chunk.ToArray();
   }
 }
