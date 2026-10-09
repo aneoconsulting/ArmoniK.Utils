@@ -84,8 +84,8 @@ public static class RechunkExt
       return AsyncEnumerable.Empty<ReadOnlyMemory<T>>();
     }
 
-    return new Rechunker<T>(source,
-                            chunkMinSize,
-                            chunkMaxSize);
+    return Rechunker.IteratorAsync(source,
+                                   chunkMinSize,
+                                   chunkMaxSize);
   }
 }
