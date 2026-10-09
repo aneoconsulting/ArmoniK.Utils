@@ -908,4 +908,257 @@ public class RechunkTest
     Assert.That(disposed,
                 Is.True);
   }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task FlushNeverContinuesOnCallerThread()
+  {
+    var flusher = new ChunkFlusher();
+    var gate    = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    await using var enumerator = Gated(new[]
+                                       {
+                                         new[]
+                                         {
+                                           0,
+                                         },
+                                       },
+                                       gate.Task,
+                                       Array.Empty<int[]>())
+                                 .Rechunk(4,
+                                          8,
+                                          flusher: flusher)
+                                 .GetAsyncEnumerator();
+
+    var move = enumerator.MoveNextAsync()
+                         .AsTask();
+    await Task.Delay(50)
+              .ConfigureAwait(false);
+
+    // If the enumeration continued synchronously on the thread calling Flush, it would complete on that thread
+    var completedOnFlushThread = false;
+    var thread = new Thread(() =>
+                            {
+                              flusher.Flush();
+                              completedOnFlushThread = move.IsCompleted;
+                            });
+    thread.Start();
+    thread.Join();
+
+    Assert.That(await move.ConfigureAwait(false),
+                Is.True);
+    Assert.That(completedOnFlushThread,
+                Is.False);
+    Assert.That(enumerator.Current.ToArray(),
+                Is.EqualTo(new[]
+                           {
+                             0,
+                           }));
+
+    gate.SetResult(true);
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.False);
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task SourceErrorAfterEarlyYield()
+  {
+    // The fetch is still pending when the buffered data is yielded on timeout, and fails afterward
+    static async IAsyncEnumerable<ReadOnlyMemory<int>> Source()
+    {
+      await Task.Yield();
+      yield return new[]
+                   {
+                     0,
+                   };
+      await Task.Delay(200)
+                .ConfigureAwait(false);
+      throw new ApplicationException();
+    }
+
+    await using var enumerator = Source()
+                                 .Rechunk(4,
+                                          8,
+                                          TimeSpan.FromMilliseconds(50))
+                                 .GetAsyncEnumerator();
+
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.True);
+    Assert.That(enumerator.Current.ToArray(),
+                Is.EqualTo(new[]
+                           {
+                             0,
+                           }));
+    Assert.That(async () => await enumerator.MoveNextAsync()
+                                            .ConfigureAwait(false),
+                Throws.InstanceOf<ApplicationException>());
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task EarlyStopAfterFlushWhileSourceIsFetching()
+  {
+    var flusher  = new ChunkFlusher();
+    var disposed = false;
+
+    async IAsyncEnumerable<ReadOnlyMemory<int>> Source([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+      try
+      {
+        await Task.Yield();
+        yield return new[]
+                     {
+                       0,
+                     };
+        flusher.Flush();
+        await Task.Delay(Timeout.Infinite,
+                         cancellationToken)
+                  .ConfigureAwait(false);
+      }
+      finally
+      {
+        disposed = true;
+      }
+    }
+
+    await foreach (var chunk in Source()
+                                .Rechunk(4,
+                                         8,
+                                         flusher: flusher)
+                                .ConfigureAwait(false))
+    {
+      Assert.That(chunk.ToArray(),
+                  Is.EqualTo(new[]
+                             {
+                               0,
+                             }));
+      break;
+    }
+
+    Assert.That(disposed,
+                Is.True);
+  }
+
+  // Random asynchronous sources, short deadlines, flushes from another thread and early stops,
+  // to exercise the races between the source, the deadline, the flusher and the consumer
+  [Test]
+  [AbortAfter(60000)]
+  public async Task ConcurrentFlushesStress([Range(0,
+                                                   9)]
+                                            int seed)
+  {
+    var rng = new Random(seed);
+    for (var iteration = 0; iteration < 30; ++iteration)
+    {
+      var min = rng.Next(1,
+                         8);
+      var max = min + rng.Next(0,
+                               8);
+      var delay = TimeSpan.FromMilliseconds(rng.Next(0,
+                                                     3));
+      var lengths = Enumerable.Range(0,
+                                     rng.Next(0,
+                                              40))
+                              .Select(_ => rng.Next(0,
+                                                    12))
+                              .ToArray();
+      var stopAfter = rng.Next(0,
+                               4) == 0
+                        ? rng.Next(0,
+                                   10)
+                        : int.MaxValue;
+      var waits = Enumerable.Range(0,
+                                   lengths.Length)
+                            .Select(_ => rng.Next(0,
+                                                  4))
+                            .ToArray();
+      var flusher  = new ChunkFlusher();
+      var input    = new List<int>();
+      var disposed = 0;
+
+      async IAsyncEnumerable<ReadOnlyMemory<int>> Source()
+      {
+        try
+        {
+          var next = 0;
+          for (var i = 0; i < lengths.Length; ++i)
+          {
+            switch (waits[i])
+            {
+              case 0:
+                await Task.Yield();
+                break;
+              case 1:
+                await Task.Delay(1)
+                          .ConfigureAwait(false);
+                break;
+            }
+
+            var chunk = Enumerable.Range(next,
+                                         lengths[i])
+                                  .ToArray();
+            next += lengths[i];
+            input.AddRange(chunk);
+            yield return chunk;
+          }
+        }
+        finally
+        {
+          Interlocked.Increment(ref disposed);
+        }
+      }
+
+      using var cts = new CancellationTokenSource();
+      var flushing = Task.Run(async () =>
+                              {
+                                while (!cts.IsCancellationRequested)
+                                {
+                                  flusher.Flush();
+                                  await Task.Delay(1)
+                                            .ConfigureAwait(false);
+                                }
+                              });
+
+      var output = new List<int[]>();
+      try
+      {
+        await foreach (var chunk in Source()
+                                    .Rechunk(min,
+                                             max,
+                                             delay,
+                                             flusher)
+                                    .ConfigureAwait(false))
+        {
+          output.Add(chunk.ToArray());
+          if (output.Count >= stopAfter)
+          {
+            break;
+          }
+        }
+      }
+      finally
+      {
+        cts.Cancel();
+        await flushing.ConfigureAwait(false);
+      }
+
+      var flat = output.SelectMany(chunk => chunk)
+                       .ToList();
+      Assert.That(disposed,
+                  Is.EqualTo(1));
+      Assert.That(output.Select(chunk => chunk.Length),
+                  Has.All.InRange(1,
+                                  max));
+      Assert.That(flat,
+                  Is.EqualTo(input.Take(flat.Count)));
+      if (stopAfter == int.MaxValue)
+      {
+        Assert.That(flat,
+                    Has.Count.EqualTo(input.Count));
+      }
+    }
+  }
 }
