@@ -148,7 +148,7 @@ public static class EnumerableExt
                                                                    TimeSpan                        maxDelay,
                                                                    CancellationToken               cancellationToken = default)
     => source.ToChunksAsync(size,
-                            (TimeSpan?)maxDelay,
+                            maxDelay,
                             null,
                             cancellationToken);
 

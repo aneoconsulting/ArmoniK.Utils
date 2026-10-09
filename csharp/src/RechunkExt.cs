@@ -106,10 +106,10 @@ public static class RechunkExt
     }
 
     return Rechunker.IteratorAsync<ReadOnlyMemory<T>, T, ReadOnlyMemory<T>, Rechunker.MemoryAdapter<T>>(source,
-                                                                                                       default,
-                                                                                                       chunkMinSize,
-                                                                                                       chunkMaxSize,
-                                                                                                       delay,
-                                                                                                       flusher);
+                                                                                                        default,
+                                                                                                        chunkMinSize,
+                                                                                                        chunkMaxSize,
+                                                                                                        delay,
+                                                                                                        flusher);
   }
 }

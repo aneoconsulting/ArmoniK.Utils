@@ -1,13 +1,13 @@
 // This file is part of the ArmoniK project
-//
+// 
 // Copyright (C) ANEO, 2022-2026. All rights reserved.
-//
+// 
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-//
+// 
 //     http://www.apache.org/licenses/LICENSE-2.0
-//
+// 
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,29 +24,6 @@ namespace ArmoniK.Utils;
 
 internal static class Rechunker
 {
-  /// <summary>
-  ///   Conversion between the items of the source, the chunks handled by the rechunker, and the yielded chunks.
-  /// </summary>
-  /// <remarks>
-  ///   Implemented by structs so that the conversions are specialized and inlined by the JIT.
-  ///   An adapter is copied for each enumeration, so it can hold per-enumeration state.
-  /// </remarks>
-  internal interface IAdapter<in TIn, T, out TOut>
-  {
-    ReadOnlyMemory<T> ToMemory(TIn item);
-
-    TOut FromMemory(ReadOnlyMemory<T> chunk);
-  }
-
-  internal struct MemoryAdapter<T> : IAdapter<ReadOnlyMemory<T>, T, ReadOnlyMemory<T>>
-  {
-    public ReadOnlyMemory<T> ToMemory(ReadOnlyMemory<T> item)
-      => item;
-
-    public ReadOnlyMemory<T> FromMemory(ReadOnlyMemory<T> chunk)
-      => chunk;
-  }
-
   // Implementation of the Rechunk and ToChunksAsync functions
   // Input chunks within bounds are yielded as is, and oversized input chunks are sliced, without any copy.
   // Only fragments smaller than minSize are copied into a buffer, in order to be merged with the next input chunks.
@@ -74,10 +51,11 @@ internal static class Rechunker
     var buffer = new Accumulator<T>(minSize);
 
     // State of the data currently buffered, only meaningful while the buffer is not empty
-    var                      bufferStart = 0;       // Environment.TickCount at the arrival of the oldest element
+    var                      bufferStart = 0; // Environment.TickCount at the arrival of the oldest element
     var                      flushToken  = default(CancellationToken);
-    CancellationTokenSource? triggerCts  = null;    // Cancelled on deadline or flush, created on first wait
+    CancellationTokenSource? triggerCts  = null; // Cancelled on deadline or flush, created on first wait
     Task?                    trigger     = null;
+    Task[]?                  waitTasks   = null; // Reused for each wait on the source and the trigger
 
     cancellationToken.ThrowIfCancellationRequested();
 
@@ -137,9 +115,16 @@ internal static class Rechunker
 
             var nextTask = next.AsTask();
             next = new ValueTask<bool>(nextTask);
-            flush = await Task.WhenAny(nextTask,
-                                       trigger)
-                              .ConfigureAwait(false) != nextTask;
+
+            // netstandard2.0 only has WhenAny(params Task[]): reuse the array instead of allocating one per wait.
+            // It is safe as the array is only modified once WhenAny has completed.
+            waitTasks    ??= new Task[2];
+            waitTasks[0] =   nextTask;
+            waitTasks[1] =   trigger;
+            var winner = await Task.WhenAny(waitTasks)
+                                   .ConfigureAwait(false);
+            waitTasks[0] = waitTasks[1] = null!;
+            flush        = winner != nextTask;
           }
 
           if (flush)
@@ -244,8 +229,7 @@ internal static class Rechunker
         }
 
         // The source may be slow even though it completes synchronously: check the deadline and the flusher
-        if (timed && !buffer.IsEmpty &&
-            (flushToken.IsCancellationRequested || (hasDeadline && delayMs - unchecked(Environment.TickCount - bufferStart) <= 0)))
+        if (timed && !buffer.IsEmpty && (flushToken.IsCancellationRequested || (hasDeadline && delayMs - unchecked(Environment.TickCount - bufferStart) <= 0)))
         {
           var chunk = buffer.TakeExact();
           EndBuffering(ref triggerCts,
@@ -334,6 +318,29 @@ internal static class Rechunker
 
     // Cannot be split in two valid chunks: minimize the remainder that will be copied
     return maxSize;
+  }
+
+  /// <summary>
+  ///   Conversion between the items of the source, the chunks handled by the rechunker, and the yielded chunks.
+  /// </summary>
+  /// <remarks>
+  ///   Implemented by structs so that the conversions are specialized and inlined by the JIT.
+  ///   An adapter is copied for each enumeration, so it can hold per-enumeration state.
+  /// </remarks>
+  internal interface IAdapter<in TIn, T, out TOut>
+  {
+    ReadOnlyMemory<T> ToMemory(TIn item);
+
+    TOut FromMemory(ReadOnlyMemory<T> chunk);
+  }
+
+  internal struct MemoryAdapter<T> : IAdapter<ReadOnlyMemory<T>, T, ReadOnlyMemory<T>>
+  {
+    public ReadOnlyMemory<T> ToMemory(ReadOnlyMemory<T> item)
+      => item;
+
+    public ReadOnlyMemory<T> FromMemory(ReadOnlyMemory<T> chunk)
+      => chunk;
   }
 
   /// <summary>

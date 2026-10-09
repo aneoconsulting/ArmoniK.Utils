@@ -109,9 +109,8 @@ internal static class Chunk
     // Anything else (only the reused array, when size is 1) must be copied.
     public T[] FromMemory(ReadOnlyMemory<T> chunk)
       => MemoryMarshal.TryGetArray(chunk,
-                                   out var segment) && !ReferenceEquals(segment.Array,
-                                                                        box_) && segment.Offset == 0 &&
-         segment.Count == segment.Array!.Length
+                                   out var segment)                           && !ReferenceEquals(segment.Array,
+                                                                                                  box_) && segment.Offset == 0 && segment.Count == segment.Array!.Length
            ? segment.Array
            : chunk.ToArray();
   }
