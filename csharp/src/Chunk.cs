@@ -105,13 +105,17 @@ internal static class Chunk
       return box_;
     }
 
-    // Arrays from the rechunker buffer have the exact chunk size and can be returned as is.
-    // Anything else (only the reused array, when size is 1) must be copied.
+    // Chunks built by the rechunker are arrays of the exact chunk size: they can be returned as is.
+    // The reused array (produced as is only when size is 1) must be copied.
     public T[] FromMemory(ReadOnlyMemory<T> chunk)
-      => MemoryMarshal.TryGetArray(chunk,
-                                   out var segment)                           && !ReferenceEquals(segment.Array,
-                                                                                                  box_) && segment.Offset == 0 && segment.Count == segment.Array!.Length
-           ? segment.Array
-           : chunk.ToArray();
+    {
+      if (MemoryMarshal.TryGetArray(chunk,
+                                    out var segment) && segment.Array != box_ && segment.Count == segment.Array!.Length)
+      {
+        return segment.Array;
+      }
+
+      return chunk.ToArray();
+    }
   }
 }
