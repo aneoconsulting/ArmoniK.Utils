@@ -1087,6 +1087,76 @@ public class RechunkTest
                 Is.False);
   }
 
+  [Test]
+  [AbortAfter(30000)]
+  public async Task ConcurrentFlushesNeverLoseWakeUp()
+  {
+    for (var round = 0; round < 500; ++round)
+    {
+      var flusher         = new ChunkFlusher();
+      var gate            = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+      var secondRequested = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+      var stop            = 0;
+      var currentRound    = round;
+
+      // The second element is requested once the first one is buffered and watched
+      async IAsyncEnumerable<ReadOnlyMemory<int>> Source()
+      {
+        await Task.Yield();
+        yield return new[]
+                     {
+                       currentRound,
+                     };
+        secondRequested.SetResult(true);
+        await gate.Task.ConfigureAwait(false);
+      }
+
+      // Flushes race with the start of the watch
+      var threads = Enumerable.Range(0,
+                                     4)
+                              .Select(_ => new Thread(() =>
+                                                      {
+                                                        while (Volatile.Read(ref stop) == 0)
+                                                        {
+                                                          flusher.Flush();
+                                                        }
+                                                      }))
+                              .ToList();
+      threads.ForEach(thread => thread.Start());
+
+      await using var enumerator = Source()
+                                   .Rechunk(4,
+                                            8,
+                                            flusher: flusher)
+                                   .GetAsyncEnumerator();
+      var move = enumerator.MoveNextAsync()
+                           .AsTask();
+
+      // The element may already have been yielded because of a flush from the threads
+      await Task.WhenAny(secondRequested.Task,
+                         move)
+                .ConfigureAwait(false);
+      Volatile.Write(ref stop,
+                     1);
+      threads.ForEach(thread => thread.Join());
+
+      // Applies to the buffered element, whatever happened before
+      flusher.Flush();
+
+      Assert.That(await Task.WhenAny(move,
+                                     Task.Delay(5000))
+                            .ConfigureAwait(false),
+                  Is.SameAs(move),
+                  $"round {round}");
+      Assert.That(enumerator.Current.ToArray(),
+                  Is.EqualTo(new[]
+                             {
+                               round,
+                             }));
+      gate.SetResult(true);
+    }
+  }
+
   // Races between the source, the deadline, the flusher and the consumer
   [Test]
   [AbortAfter(60000)]
