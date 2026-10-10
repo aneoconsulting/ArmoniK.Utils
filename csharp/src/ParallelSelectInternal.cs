@@ -26,6 +26,11 @@ using JetBrains.Annotations;
 
 namespace ArmoniK.Utils;
 
+// Tasks spawned by ParallelSelect may outlive the enumeration (eg: when the consumer stops early).
+// They must therefore not use any object disposed at the end of the enumeration:
+// - tokens are captured before any disposal, and their sources are cancelled before being disposed
+// - semaphores are not disposed (SemaphoreSlim only needs disposal when its AvailableWaitHandle is used)
+// - tasks report errors through a CancellationTokenSource that is never disposed
 [PublicAPI]
 internal static class ParallelSelectInternal
 {
@@ -34,7 +39,8 @@ internal static class ParallelSelectInternal
   /// </summary>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="func">Function to spawn on the enumerable input</param>
-  /// <param name="parallelism">Maximum number of tasks in flight</param>
+  /// <param name="parallelism">Maximum number of tasks running</param>
+  /// <param name="bufferLimit">Maximum number of tasks started whose result has not been yielded yet</param>
   /// <param name="cancellationToken">Trigger cancellation of the enumeration</param>
   /// <typeparam name="TInput">Type of the inputs</typeparam>
   /// <typeparam name="TOutput">Type of the outputs</typeparam>
@@ -42,11 +48,17 @@ internal static class ParallelSelectInternal
   internal static async IAsyncEnumerable<TOutput> ParallelSelectOrdered<TInput, TOutput>(IAsyncEnumerable<TInput>                   enumerable,
                                                                                          Func<TInput, Task<TOutput>>                func,
                                                                                          int                                        parallelism,
+                                                                                         int                                        bufferLimit,
                                                                                          [EnumeratorCancellation] CancellationToken cancellationToken)
   {
     // CancellationTokenSource used to cancel all tasks inflight upon errors
-    using var globalCts    = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    using var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token);
+    using var globalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    // CancellationTokenSource cancelled by the tasks upon errors, never disposed as tasks may outlive the enumeration
+    var errorCts = new CancellationTokenSource();
+    using var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token,
+                                                                             errorCts.Token);
+    var globalToken    = globalCts.Token;
+    var iterationToken = iterationCts.Token;
 
     // Ensure all running tasks are actually aborted at the end
     await using var globalCtsCancel = new Deferrer(globalCts.Cancel);
@@ -54,58 +66,64 @@ internal static class ParallelSelectInternal
     // Output
     var channel = Channel.CreateUnbounded<Task<TOutput>>();
 
-    // Semaphore to limit the parallelism
-    using var sem = new SemaphoreSlim(parallelism);
+    // Semaphores to limit the number of pending results, and the parallelism if it is lower
+    var bufferSem = new SemaphoreSlim(bufferLimit);
+    var parallelismSem = parallelism < bufferLimit
+                           ? new SemaphoreSlim(parallelism)
+                           : null;
 
     [SuppressMessage("ReSharper",
                      "PossibleMultipleEnumeration")]
-    [SuppressMessage("ReSharper",
-                     "AccessToDisposedClosure")]
     async Task Run()
     {
       try
       {
-        await foreach (var x in enumerable.WithCancellation(iterationCts.Token))
+        await foreach (var x in enumerable.WithCancellation(iterationToken))
         {
-          await sem.WaitAsync(iterationCts.Token)
-                   .ConfigureAwait(false);
+          await bufferSem.WaitAsync(iterationToken)
+                         .ConfigureAwait(false);
+          if (parallelismSem is not null)
+          {
+            await parallelismSem.WaitAsync(iterationToken)
+                                .ConfigureAwait(false);
+          }
+
           var task = Task.Run(async () =>
                               {
-                                TOutput res;
                                 try
                                 {
-                                  res = await func(x)
-                                          .ConfigureAwait(false);
+                                  return await func(x)
+                                           .ConfigureAwait(false);
                                 }
                                 catch
                                 {
-                                  iterationCts.Cancel();
+                                  errorCts.Cancel();
                                   throw;
                                 }
-
-                                return res;
+                                finally
+                                {
+                                  parallelismSem?.Release();
+                                }
                               },
-                              globalCts.Token);
+                              globalToken);
 
-          await channel.Writer.WriteAsync(task,
-                                          globalCts.Token)
-                       .ConfigureAwait(false);
+          channel.Writer.TryWrite(task);
         }
       }
       finally
       {
-        channel.Writer.Complete();
+        channel.Writer.TryComplete();
       }
     }
 
     var run = Task.Run(Run,
-                       globalCts.Token);
+                       globalToken);
 
-    await foreach (var task in channel.Reader.ToAsyncEnumerable(globalCts.Token))
+    await foreach (var task in channel.Reader.ToAsyncEnumerable(globalToken))
     {
       var res = await task.ConfigureAwait(false);
 
-      sem.Release();
+      bufferSem.Release();
 
       yield return res;
     }
@@ -118,7 +136,8 @@ internal static class ParallelSelectInternal
   /// </summary>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="func">Function to spawn on the enumerable input</param>
-  /// <param name="parallelism">Maximum number of tasks in flight</param>
+  /// <param name="parallelism">Maximum number of tasks running</param>
+  /// <param name="bufferLimit">Maximum number of tasks started whose result has not been yielded yet</param>
   /// <param name="cancellationToken">Trigger cancellation of the enumeration</param>
   /// <typeparam name="TInput">Type of the inputs</typeparam>
   /// <typeparam name="TOutput">Type of the outputs</typeparam>
@@ -126,36 +145,61 @@ internal static class ParallelSelectInternal
   internal static async IAsyncEnumerable<TOutput> ParallelSelectUnordered<TInput, TOutput>(IAsyncEnumerable<TInput>                   enumerable,
                                                                                            Func<TInput, Task<TOutput>>                func,
                                                                                            int                                        parallelism,
+                                                                                           int                                        bufferLimit,
                                                                                            [EnumeratorCancellation] CancellationToken cancellationToken)
   {
     // CancellationTokenSource used to cancel all tasks inflight upon errors
-    using var globalCts    = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    using var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token);
+    using var globalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    // CancellationTokenSource cancelled by the tasks upon errors, never disposed as tasks may outlive the enumeration
+    var errorCts = new CancellationTokenSource();
+    using var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token,
+                                                                             errorCts.Token);
+    var globalToken    = globalCts.Token;
+    var iterationToken = iterationCts.Token;
 
     // Ensure all running tasks are actually aborted at the end
     await using var globalCtsCancel = new Deferrer(globalCts.Cancel);
 
-    // Output
+    // Output, completed with the first error if any
     var channel = Channel.CreateUnbounded<TOutput>();
 
-    // Semaphore to limit the parallelism
-    using var sem = new SemaphoreSlim(parallelism);
-    var       tcs = new TaskCompletionSource<ValueTuple>();
+    // Forward the error to the consumer
+    void Fail(Exception e)
+    {
+      if (channel.Writer.TryComplete(e))
+      {
+        // The error is surfaced to the consumer, but older channel implementations
+        // also store it in Completion that is never observed
+        _ = channel.Reader.Completion.ContinueWith(t => _ = t.Exception,
+                                                   CancellationToken.None,
+                                                   TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                                                   TaskScheduler.Default);
+      }
+    }
+
+    // Semaphores to limit the number of pending results, and the parallelism if it is lower
+    var bufferSem = new SemaphoreSlim(bufferLimit);
+    var parallelismSem = parallelism < bufferLimit
+                           ? new SemaphoreSlim(parallelism)
+                           : null;
 
     [SuppressMessage("ReSharper",
                      "PossibleMultipleEnumeration")]
-    [SuppressMessage("ReSharper",
-                     "AccessToDisposedClosure")]
     async Task Run()
     {
       var nbRef = 1;
 
       try
       {
-        await foreach (var x in enumerable.WithCancellation(iterationCts.Token))
+        await foreach (var x in enumerable.WithCancellation(iterationToken))
         {
-          await sem.WaitAsync(iterationCts.Token)
-                   .ConfigureAwait(false);
+          await bufferSem.WaitAsync(iterationToken)
+                         .ConfigureAwait(false);
+          if (parallelismSem is not null)
+          {
+            await parallelismSem.WaitAsync(iterationToken)
+                                .ConfigureAwait(false);
+          }
 
           // Increment reference counter *before* starting the task
           // to avoid counter going to zero before being incremented
@@ -170,53 +214,49 @@ internal static class ParallelSelectInternal
                          }
                          catch (Exception e)
                          {
-                           // Forward the error and close the channel
-                           tcs.TrySetException(e);
-                           channel.Writer.Complete();
-                           iterationCts.Cancel();
+                           // Forward the error and stop the iteration
+                           Fail(e);
+                           errorCts.Cancel();
                            return;
                          }
+                         finally
+                         {
+                           parallelismSem?.Release();
+                         }
 
-                         await channel.Writer.WriteAsync(res,
-                                                         iterationCts.Token)
-                                      .ConfigureAwait(false);
+                         // Fails silently if the channel has already been completed by an error
+                         channel.Writer.TryWrite(res);
 
                          // ReSharper disable once AccessToModifiedClosure
                          // Close channel if there is no more reference to the channel
                          if (Interlocked.Decrement(ref nbRef) == 0)
                          {
-                           tcs.TrySetResult(new ValueTuple());
-                           channel.Writer.Complete();
+                           channel.Writer.TryComplete();
                          }
                        },
-                       globalCts.Token);
+                       globalToken);
         }
 
         // Close channel if there is no more reference to the channel
         if (Interlocked.Decrement(ref nbRef) == 0)
         {
-          tcs.TrySetResult(new ValueTuple());
-          channel.Writer.Complete();
+          channel.Writer.TryComplete();
         }
       }
       catch (Exception e)
       {
-        // Forward the error and close the channel
-        tcs.TrySetException(e);
-        channel.Writer.Complete();
-        iterationCts.Cancel();
+        // Forward the error, unless a task has already completed the channel with its own error
+        Fail(e);
       }
     }
 
     _ = Task.Run(Run,
-                 globalCts.Token);
+                 globalToken);
 
-    await foreach (var res in channel.Reader.ToAsyncEnumerable(globalCts.Token))
+    await foreach (var res in channel.Reader.ToAsyncEnumerable(globalToken))
     {
-      sem.Release();
+      bufferSem.Release();
       yield return res;
     }
-
-    await tcs.Task.ConfigureAwait(false);
   }
 }

@@ -679,6 +679,241 @@ public class ParallelSelectExtTest
                 Is.LessThan(cancelAt));
   }
 
+  public static readonly (int parallelism, int? bufferLimit)[] BufferLimitCases =
+  {
+    (2, null),
+    (2, 10),
+    (10, 3),
+  };
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task BufferLimit([ValueSource(nameof(BufferLimitCases))] (int parallelism, int? bufferLimit) param,
+                                [Values]                                bool                                unordered,
+                                [Values]                                bool                                useAsync)
+  {
+    const int n          = 100;
+    var       started    = 0;
+    var       running    = 0;
+    var       maxRunning = 0;
+    var       tcs        = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    // The first task is blocked until the test releases it, the other ones complete right away
+    async Task<int> F(int x)
+    {
+      Interlocked.Increment(ref started);
+      InterlockedMax(ref maxRunning,
+                     Interlocked.Increment(ref running));
+
+      if (x == 0)
+      {
+        await tcs.Task.ConfigureAwait(false);
+      }
+      else
+      {
+        await Task.Yield();
+      }
+
+      Interlocked.Decrement(ref running);
+      return x;
+    }
+
+    var options = new ParallelTaskOptions(unordered,
+                                          param.parallelism)
+                  {
+                    BufferLimit = param.bufferLimit ?? 0,
+                  };
+
+    var enumerable = useAsync
+                       ? GenerateIntsAsync(n)
+                         .ParallelSelect(options,
+                                         F)
+                       : GenerateInts(n)
+                         .ParallelSelect(options,
+                                         F);
+
+    var bufferLimit = param.bufferLimit ?? param.parallelism;
+    // In unordered mode, the first result yielded leaves the buffer
+    var expectedStarted = unordered
+                            ? bufferLimit + 1
+                            : bufferLimit;
+
+    await using var enumerator = enumerable.GetAsyncEnumerator();
+
+    // Ordered: blocked on the first task, unordered: gets the first completed task
+    var first = enumerator.MoveNextAsync();
+
+    while (started < expectedStarted)
+    {
+      await Task.Delay(10)
+                .ConfigureAwait(false);
+    }
+
+    // Leave some time for an extra task to start if the limit was not enforced
+    await Task.Delay(100)
+              .ConfigureAwait(false);
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(started,
+                                  Is.EqualTo(expectedStarted));
+                      Assert.That(maxRunning,
+                                  Is.LessThanOrEqualTo(Math.Min(param.parallelism,
+                                                                bufferLimit)));
+                    });
+
+    tcs.SetResult(0);
+
+    var results = new List<int>();
+    if (await first.ConfigureAwait(false))
+    {
+      results.Add(enumerator.Current);
+    }
+
+    while (await enumerator.MoveNextAsync()
+                           .ConfigureAwait(false))
+    {
+      results.Add(enumerator.Current);
+    }
+
+    if (unordered)
+    {
+      results.Sort();
+    }
+
+    Assert.That(results,
+                Is.EqualTo(GenerateInts(n)));
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task ParallelForeachSlowTask([Values] bool  useAsync,
+                                            [Values] bool? unordered)
+  {
+    const int n    = 20;
+    var       done = 0;
+    var       tcs  = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    async Task F(int x)
+    {
+      if (x == 0)
+      {
+        await tcs.Task.ConfigureAwait(false);
+      }
+      else
+      {
+        await Task.Yield();
+      }
+
+      Interlocked.Increment(ref done);
+    }
+
+    var options = new ParallelTaskOptions(unordered ?? false,
+                                          2);
+
+    var task = useAsync
+                 ? GenerateIntsAsync(n)
+                   .ParallelForEach(options,
+                                    F)
+                 : GenerateInts(n)
+                   .ParallelForEach(options,
+                                    F);
+
+    // All the other tasks complete while the first one is blocked, whatever the order option
+    while (done < n - 1)
+    {
+      await Task.Delay(10)
+                .ConfigureAwait(false);
+    }
+
+    Assert.That(task.IsCompleted,
+                Is.False);
+
+    tcs.SetResult(0);
+    await task.ConfigureAwait(false);
+
+    Assert.That(done,
+                Is.EqualTo(n));
+  }
+
+  [Test]
+  [AbortAfter(30000)]
+  public async Task NoUnobservedException([Values] bool unordered,
+                                          [Values] bool throwing)
+  {
+    // Ordered mode reports the first error of a func, the following ones are not observed by design
+    if (throwing && !unordered)
+    {
+      Assert.Ignore("Errors after the first one are not observed in ordered mode");
+    }
+
+    // Flush the garbage from previous tests
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+
+    var unobserved = new ConcurrentBag<Exception>();
+
+    void Handler(object?                          sender,
+                 UnobservedTaskExceptionEventArgs e)
+    {
+      unobserved.Add(e.Exception);
+      e.SetObserved();
+    }
+
+    TaskScheduler.UnobservedTaskException += Handler;
+
+    try
+    {
+      for (var i = 0; i < 20; ++i)
+      {
+        var enumerable = GenerateInts(100)
+          .ParallelSelect(new ParallelTaskOptions(unordered,
+                                                  8),
+                          async x =>
+                          {
+                            await Task.Delay(10)
+                                      .ConfigureAwait(false);
+                            if (throwing && x % 2 == 0)
+                            {
+                              throw new ApplicationException();
+                            }
+
+                            return x;
+                          });
+
+        if (throwing)
+        {
+          Assert.That(() => enumerable.ToListAsync()
+                                      .AsTask(),
+                      Throws.TypeOf<ApplicationException>());
+        }
+        else
+        {
+          // Stop the enumeration while tasks are still running
+          await foreach (var _ in enumerable.ConfigureAwait(false))
+          {
+            break;
+          }
+        }
+      }
+
+      // Let the remaining tasks finish
+      await Task.Delay(200)
+                .ConfigureAwait(false);
+
+      GC.Collect();
+      GC.WaitForPendingFinalizers();
+      GC.Collect();
+    }
+    finally
+    {
+      TaskScheduler.UnobservedTaskException -= Handler;
+    }
+
+    Assert.That(unobserved,
+                Is.Empty);
+  }
+
   private static ParallelTaskOptions? CreateOptions(bool?              unordered,
                                                     int?               parallelism,
                                                     CancellationToken? cancellationToken)

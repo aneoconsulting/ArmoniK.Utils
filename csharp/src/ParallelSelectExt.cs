@@ -66,10 +66,12 @@ public static class ParallelSelectExt
          ? ParallelSelectInternal.ParallelSelectUnordered(enumerable,
                                                           func,
                                                           parallelTaskOptions.ParallelismLimit,
+                                                          parallelTaskOptions.BufferLimit,
                                                           parallelTaskOptions.CancellationToken)
          : ParallelSelectInternal.ParallelSelectOrdered(enumerable,
                                                         func,
                                                         parallelTaskOptions.ParallelismLimit,
+                                                        parallelTaskOptions.BufferLimit,
                                                         parallelTaskOptions.CancellationToken);
 
   /// <summary>
@@ -107,7 +109,7 @@ public static class ParallelSelectExt
   /// <summary>
   ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
   ///   The maximum number of tasks in flight at any given moment is given in the `parallelTaskOptions`.
-  ///   All results are collected in-order.
+  ///   Tasks are not awaited in-order, whatever the value of `Unordered` in the options.
   /// </summary>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="parallelTaskOptions">Options (eg: parallelismLimit, cancellationToken)</param>
@@ -126,7 +128,7 @@ public static class ParallelSelectExt
   /// <summary>
   ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
   ///   The maximum number of tasks in flight at any given moment is given in the `parallelTaskOptions`.
-  ///   All results are collected in-order.
+  ///   Tasks are not awaited in-order, whatever the value of `Unordered` in the options.
   /// </summary>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="parallelTaskOptions">Options (eg: parallelismLimit, cancellationToken)</param>
@@ -138,7 +140,11 @@ public static class ParallelSelectExt
                                                    ParallelTaskOptions           parallelTaskOptions,
                                                    Func<TInput, Task>            func)
   {
-    await foreach (var _ in enumerable.ParallelSelect(parallelTaskOptions,
+    // Results are discarded: unordered avoids waiting for a slow task before starting the next ones
+    await foreach (var _ in enumerable.ParallelSelect(parallelTaskOptions with
+                                                      {
+                                                        Unordered = true,
+                                                      },
                                                       async x =>
                                                       {
                                                         await func(x)
@@ -152,7 +158,7 @@ public static class ParallelSelectExt
   /// <summary>
   ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
   ///   At most "number of thread" tasks will be running at any given time.
-  ///   All results are collected in-order.
+  ///   Tasks are not awaited in-order, whatever the value of `Unordered` in the options.
   /// </summary>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="func">Function to spawn on the enumerable input</param>
@@ -168,7 +174,7 @@ public static class ParallelSelectExt
   /// <summary>
   ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
   ///   At most "number of thread" tasks will be running at any given time.
-  ///   All results are collected in-order.
+  ///   Tasks are not awaited in-order, whatever the value of `Unordered` in the options.
   /// </summary>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="func">Function to spawn on the enumerable input</param>
