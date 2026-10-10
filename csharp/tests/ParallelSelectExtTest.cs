@@ -356,43 +356,48 @@ public class ParallelSelectExtTest
                              ? (1000, -1)
                              : (processorCount, processorCount);
 
-    var cts = new CancellationTokenSource();
-    var cancellationToken = cancellationAware
-                              ? cts.Token
-                              : CancellationToken.None;
-
+    var nbStarted  = 0;
     var nbFinished = 0;
 
-    async Task<int> F(int x)
+    async Task<int> F(int               x,
+                      CancellationToken cancellationToken)
     {
+      Interlocked.Increment(ref nbStarted);
+
       if (x == n - 1)
       {
         throw new ApplicationException();
       }
 
-      await Task.Delay(100,
-                       cancellationToken)
+      await Task.Delay(500,
+                       cancellationAware
+                         ? cancellationToken
+                         : CancellationToken.None)
                 .ConfigureAwait(false);
-      Interlocked.Increment(ref x);
+      Interlocked.Increment(ref nbFinished);
       return x;
     }
 
-    var enumerable = GenerateAndSelect(useAsync,
-                                       true,
-                                       parallelism,
-                                       null,
-                                       n,
-                                       F);
+    var options = new ParallelTaskOptions(true,
+                                          parallelism);
+    var enumerable = useAsync
+                       ? GenerateIntsAsync(n)
+                         .ParallelSelect(options,
+                                         F)
+                       : GenerateInts(n)
+                         .ParallelSelect(options,
+                                         F);
 
     await using var enumerator = enumerable.GetAsyncEnumerator(CancellationToken.None);
 
     Assert.That(enumerator.MoveNextAsync,
                 Throws.TypeOf<ApplicationException>());
 
-    await Task.Delay(200,
-                     CancellationToken.None);
+    // The error cancels the other tasks, and is thrown once they have all completed
     Assert.That(nbFinished,
-                Is.Zero);
+                Is.EqualTo(cancellationAware
+                             ? 0
+                             : nbStarted - 1));
   }
 
   [Test]
@@ -841,12 +846,6 @@ public class ParallelSelectExtTest
   public async Task NoUnobservedException([Values] bool unordered,
                                           [Values] bool throwing)
   {
-    // Ordered mode reports the first error of a func, the following ones are not observed by design
-    if (throwing && !unordered)
-    {
-      Assert.Ignore("Errors after the first one are not observed in ordered mode");
-    }
-
     // Flush the garbage from previous tests
     GC.Collect();
     GC.WaitForPendingFinalizers();
@@ -974,6 +973,144 @@ public class ParallelSelectExtTest
     }
 
     return GC.GetTotalMemory(true);
+  }
+
+  public enum ExitKind
+  {
+    Break,
+    Throw,
+    Cancel,
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task ExitWaitsForRunningTasks([Values] bool     unordered,
+                                             [Values] ExitKind exit,
+                                             [Values] bool     cancellationAware)
+  {
+    const int throwAt = 5;
+    var       running = 0;
+    var       cts     = new CancellationTokenSource();
+
+    // Inputs before throwAt complete right away, the following ones are slow.
+    // When cancellation aware, only the cancellation can end the slow ones.
+    async Task<int> F(int               x,
+                      CancellationToken cancellationToken)
+    {
+      Interlocked.Increment(ref running);
+      try
+      {
+        if (x < throwAt)
+        {
+          await Task.Yield();
+          return x;
+        }
+
+        if (exit == ExitKind.Throw && x == throwAt)
+        {
+          throw new ApplicationException();
+        }
+
+        await Task.Delay(cancellationAware
+                           ? Timeout.Infinite
+                           : 200,
+                         cancellationAware
+                           ? cancellationToken
+                           : CancellationToken.None)
+                  .ConfigureAwait(false);
+        return x;
+      }
+      finally
+      {
+        Interlocked.Decrement(ref running);
+      }
+    }
+
+    var enumerable = GenerateInts(100)
+      .ParallelSelect(new ParallelTaskOptions(unordered,
+                                              10,
+                                              cts.Token),
+                      F);
+
+    async Task Consume()
+    {
+      await foreach (var _ in enumerable.WithCancellation(CancellationToken.None))
+      {
+        switch (exit)
+        {
+          case ExitKind.Break:
+            return;
+          case ExitKind.Cancel:
+            cts.Cancel();
+            break;
+        }
+      }
+    }
+
+    switch (exit)
+    {
+      case ExitKind.Break:
+        await Consume()
+          .ConfigureAwait(false);
+        break;
+      case ExitKind.Throw:
+        Assert.That(async () => await Consume()
+                                  .ConfigureAwait(false),
+                    Throws.TypeOf<ApplicationException>());
+        break;
+      case ExitKind.Cancel:
+        Assert.That(async () => await Consume()
+                                  .ConfigureAwait(false),
+                    Throws.InstanceOf<OperationCanceledException>());
+        break;
+    }
+
+    // No task is still running once the enumeration has ended
+    Assert.That(running,
+                Is.Zero);
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public void ParallelForeachCancelsOnError([Values] bool useAsync)
+  {
+    var running = 0;
+
+    // Only the cancellation can end the tasks that do not throw
+    async Task F(int               x,
+                 CancellationToken cancellationToken)
+    {
+      Interlocked.Increment(ref running);
+      try
+      {
+        if (x == 5)
+        {
+          throw new ApplicationException();
+        }
+
+        await Task.Delay(Timeout.Infinite,
+                         cancellationToken)
+                  .ConfigureAwait(false);
+      }
+      finally
+      {
+        Interlocked.Decrement(ref running);
+      }
+    }
+
+    var options = new ParallelTaskOptions(10);
+    var task = useAsync
+                 ? GenerateIntsAsync(100)
+                   .ParallelForEach(options,
+                                    F)
+                 : GenerateInts(100)
+                   .ParallelForEach(options,
+                                    F);
+
+    Assert.That(() => task,
+                Throws.TypeOf<ApplicationException>());
+    Assert.That(running,
+                Is.Zero);
   }
 
   private static ParallelTaskOptions? CreateOptions(bool?              unordered,
