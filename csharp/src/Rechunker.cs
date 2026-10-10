@@ -386,14 +386,15 @@ internal static class Rechunker
 
     private ManualResetValueTaskSourceCore<bool> core_; // Result: whether the fetch completed
 
-    private CancellationTokenSource? cts_;
-    private long                     firedPeriod_; // Last period whose trigger fired
-    private CancellationToken        flushToken_;
-    private int                      nextState_;
-    private long                     period_; // Current armed period, > 0
-    private int                      start_;
-    private bool                     started_; // Whether the timer and the flusher are watched
-    private long                     waiting_;
+    private CancellationTokenSource?      cts_;
+    private long                          firedPeriod_; // Last period whose trigger fired
+    private CancellationTokenRegistration flushRegistration_;
+    private CancellationToken             flushToken_;
+    private int                           nextState_;
+    private long                          period_; // Current armed period, > 0
+    private int                           start_;
+    private bool                          started_; // Whether the timer and the flusher are watched
+    private long                          waiting_;
 
     public FlushTrigger(TimeSpan      maxDelay,
                         ChunkFlusher? flusher)
@@ -457,8 +458,9 @@ internal static class Rechunker
         return;
       }
 
+      flushRegistration_.Dispose();
       started_ = false;
-      cts_!.Dispose();
+      cts_?.Dispose();
       cts_ = null;
     }
 
@@ -519,17 +521,20 @@ internal static class Rechunker
       started_ = true;
       var signal = new PeriodSignal(this,
                                     period_);
-      cts_ = flushToken_.CanBeCanceled
-               ? CancellationTokenSource.CreateLinkedTokenSource(flushToken_)
-               : new CancellationTokenSource();
-      if (delayMs_ != Timeout.Infinite)
+      if (flushToken_.CanBeCanceled)
       {
-        cts_.CancelAfter(Math.Max(Remaining,
-                                  0));
+        flushRegistration_ = flushToken_.Register(PeriodSignal.OnCancel,
+                                                  signal);
       }
 
-      cts_.Token.Register(PeriodSignal.OnCancel,
-                          signal);
+      if (delayMs_ != Timeout.Infinite)
+      {
+        cts_ = new CancellationTokenSource();
+        cts_.CancelAfter(Math.Max(Remaining,
+                                  0));
+        cts_.Token.Register(PeriodSignal.OnCancel,
+                            signal);
+      }
     }
 
     // Nothing must be done after Completed: the fetch can then be unhooked
