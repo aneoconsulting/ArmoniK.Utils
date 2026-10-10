@@ -921,8 +921,11 @@ public class ParallelSelectExtTest
     // Long-lived token, like an application lifetime token
     using var cts = new CancellationTokenSource();
 
-    // Warm-up to exclude one-time allocations from the measurement (eg: thread pool queues)
-    for (var i = 0; i < 2000; ++i)
+    const int n = 10000;
+
+    // Warm-up with as many enumerations to exclude the memory retained for reuse, independently of n:
+    // eg: thread pool queues, and the registration nodes of cancellationToken, kept for the peak number of registrations
+    for (var i = 0; i < n; ++i)
     {
       await StartEnumerationAndForget(unordered,
                                       cts.Token)
@@ -932,7 +935,7 @@ public class ParallelSelectExtTest
     var before = await CollectAndMeasure()
                    .ConfigureAwait(false);
 
-    for (var i = 0; i < 2000; ++i)
+    for (var i = 0; i < n; ++i)
     {
       await StartEnumerationAndForget(unordered,
                                       cts.Token)
@@ -942,9 +945,10 @@ public class ParallelSelectExtTest
     var after = await CollectAndMeasure()
                   .ConfigureAwait(false);
 
-    // Each enumeration used to leave about 140 bytes registered on the token
+    // Each enumeration used to leave about 150 bytes registered on the token (1.5 MB in total),
+    // while the remaining growth does not depend on n (up to about 300 KB seen)
     Assert.That(after - before,
-                Is.LessThan(64 * 1024));
+                Is.LessThan(n * 50));
   }
 
   [MethodImpl(MethodImplOptions.NoInlining)]
@@ -964,16 +968,26 @@ public class ParallelSelectExtTest
 
   private static async Task<long> CollectAndMeasure()
   {
-    // Let the abandoned enumerations be finalized, and their tasks complete
-    for (var i = 0; i < 3; ++i)
+    // Let the abandoned enumerations be finalized, and their tasks complete,
+    // until the memory stops decreasing
+    var memory = long.MaxValue;
+    for (var i = 0; i < 100; ++i)
     {
       GC.Collect();
       GC.WaitForPendingFinalizers();
       await Task.Delay(50)
                 .ConfigureAwait(false);
+
+      var current = GC.GetTotalMemory(true);
+      if (current >= memory)
+      {
+        return current;
+      }
+
+      memory = current;
     }
 
-    return GC.GetTotalMemory(true);
+    return memory;
   }
 
   public enum ExitKind
