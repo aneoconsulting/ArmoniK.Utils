@@ -690,6 +690,8 @@ public class ParallelSelectExtTest
     (2, null),
     (2, 10),
     (10, 3),
+    (2, -1),
+    (-1, null),
   };
 
   [Test]
@@ -738,11 +740,21 @@ public class ParallelSelectExtTest
                          .ParallelSelect(options,
                                          F);
 
-    var bufferLimit = param.bufferLimit ?? param.parallelism;
+    // A negative limit means no limit
+    var parallelism = param.parallelism < 0
+                        ? n
+                        : param.parallelism;
+    var bufferLimit = (param.bufferLimit ?? param.parallelism) switch
+                      {
+                        < 0   => n,
+                        var l => l,
+                      };
     // In unordered mode, the first result yielded leaves the buffer
-    var expectedStarted = unordered
-                            ? bufferLimit + 1
-                            : bufferLimit;
+    var expectedStarted = bufferLimit >= n
+                            ? n
+                            : unordered
+                              ? bufferLimit + 1
+                              : bufferLimit;
 
     await using var enumerator = enumerable.GetAsyncEnumerator();
 
@@ -764,7 +776,7 @@ public class ParallelSelectExtTest
                       Assert.That(started,
                                   Is.EqualTo(expectedStarted));
                       Assert.That(maxRunning,
-                                  Is.LessThanOrEqualTo(Math.Min(param.parallelism,
+                                  Is.LessThanOrEqualTo(Math.Min(parallelism,
                                                                 bufferLimit)));
                     });
 

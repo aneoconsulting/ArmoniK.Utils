@@ -90,7 +90,10 @@ internal static class ParallelSelectInternal
     var channel = Channel.CreateUnbounded<ValueTask<TOutput>>();
 
     // Semaphores to limit the number of pending results, and the parallelism if it is lower
-    var bufferSem = new SemaphoreSlim(bufferLimit);
+    // A limit of int.MaxValue means no limit: no semaphore is needed
+    var bufferSem = bufferLimit < int.MaxValue
+                      ? new SemaphoreSlim(bufferLimit)
+                      : null;
     var parallelismSem = parallelism < bufferLimit
                            ? new SemaphoreSlim(parallelism)
                            : null;
@@ -172,8 +175,12 @@ internal static class ParallelSelectInternal
       {
         await foreach (var x in enumerable.WithCancellation(iterationToken))
         {
-          await bufferSem.WaitAsync(iterationToken)
-                         .ConfigureAwait(false);
+          if (bufferSem is not null)
+          {
+            await bufferSem.WaitAsync(iterationToken)
+                           .ConfigureAwait(false);
+          }
+
           if (parallelismSem is not null)
           {
             await parallelismSem.WaitAsync(iterationToken)
@@ -212,7 +219,7 @@ internal static class ParallelSelectInternal
       {
         var res = await item.ConfigureAwait(false);
 
-        bufferSem.Release();
+        bufferSem?.Release();
 
         yield return res;
       }

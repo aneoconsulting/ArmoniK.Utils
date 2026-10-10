@@ -50,7 +50,8 @@ public struct ParallelTaskOptions
   /// <remarks>
   ///   <para>
   ///     If BufferLimit is 0 (default), <see cref="ParallelismLimit" /> is used as the limit.
-  ///     If BufferLimit is negative, no limit is enforced.
+  ///     If BufferLimit is negative, no limit is enforced: results may then pile up if they are consumed slower than
+  ///     produced.
   ///   </para>
   ///   <para>
   ///     A BufferLimit larger than <see cref="ParallelismLimit" /> lets new tasks start while completed results
