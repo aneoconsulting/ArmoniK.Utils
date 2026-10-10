@@ -52,16 +52,29 @@ internal static class ParallelSelectInternal
                                                                                          [EnumeratorCancellation] CancellationToken cancellationToken)
   {
     // CancellationTokenSource used to cancel all tasks inflight upon errors
-    using var globalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    var globalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
     // CancellationTokenSource cancelled by the tasks upon errors, never disposed as tasks may outlive the enumeration
     var errorCts = new CancellationTokenSource();
-    using var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token,
-                                                                             errorCts.Token);
+    var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token,
+                                                                       errorCts.Token);
     var globalToken    = globalCts.Token;
     var iterationToken = iterationCts.Token;
 
-    // Ensure all running tasks are actually aborted at the end
-    await using var globalCtsCancel = new Deferrer(globalCts.Cancel);
+    // Ensure all running tasks are actually aborted at the end, and unregister from cancellationToken.
+    // If the enumerator is not disposed, the deferrer finalizer does it: otherwise, globalCts would
+    // stay registered on cancellationToken, leaking memory if cancellationToken is long-lived.
+    await using var cleanup = new Deferrer(() =>
+                                           {
+                                             try
+                                             {
+                                               globalCts.Cancel();
+                                             }
+                                             finally
+                                             {
+                                               iterationCts.Dispose();
+                                               globalCts.Dispose();
+                                             }
+                                           });
 
     // Output
     var channel = Channel.CreateUnbounded<Task<TOutput>>();
@@ -149,16 +162,29 @@ internal static class ParallelSelectInternal
                                                                                            [EnumeratorCancellation] CancellationToken cancellationToken)
   {
     // CancellationTokenSource used to cancel all tasks inflight upon errors
-    using var globalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    var globalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
     // CancellationTokenSource cancelled by the tasks upon errors, never disposed as tasks may outlive the enumeration
     var errorCts = new CancellationTokenSource();
-    using var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token,
-                                                                             errorCts.Token);
+    var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token,
+                                                                       errorCts.Token);
     var globalToken    = globalCts.Token;
     var iterationToken = iterationCts.Token;
 
-    // Ensure all running tasks are actually aborted at the end
-    await using var globalCtsCancel = new Deferrer(globalCts.Cancel);
+    // Ensure all running tasks are actually aborted at the end, and unregister from cancellationToken.
+    // If the enumerator is not disposed, the deferrer finalizer does it: otherwise, globalCts would
+    // stay registered on cancellationToken, leaking memory if cancellationToken is long-lived.
+    await using var cleanup = new Deferrer(() =>
+                                           {
+                                             try
+                                             {
+                                               globalCts.Cancel();
+                                             }
+                                             finally
+                                             {
+                                               iterationCts.Dispose();
+                                               globalCts.Dispose();
+                                             }
+                                           });
 
     // Output, completed with the first error if any
     var channel = Channel.CreateUnbounded<TOutput>();

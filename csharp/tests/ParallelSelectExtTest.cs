@@ -914,6 +914,68 @@ public class ParallelSelectExtTest
                 Is.Empty);
   }
 
+  [Test]
+  [AbortAfter(30000)]
+  public async Task UndisposedEnumeratorDoesNotLeak([Values] bool unordered)
+  {
+    // Long-lived token, like an application lifetime token
+    using var cts = new CancellationTokenSource();
+
+    // Warm-up to exclude one-time allocations from the measurement (eg: thread pool queues)
+    for (var i = 0; i < 2000; ++i)
+    {
+      await StartEnumerationAndForget(unordered,
+                                      cts.Token)
+        .ConfigureAwait(false);
+    }
+
+    var before = await CollectAndMeasure()
+                   .ConfigureAwait(false);
+
+    for (var i = 0; i < 2000; ++i)
+    {
+      await StartEnumerationAndForget(unordered,
+                                      cts.Token)
+        .ConfigureAwait(false);
+    }
+
+    var after = await CollectAndMeasure()
+                  .ConfigureAwait(false);
+
+    // Each enumeration used to leave about 140 bytes registered on the token
+    Assert.That(after - before,
+                Is.LessThan(64 * 1024));
+  }
+
+  [MethodImpl(MethodImplOptions.NoInlining)]
+  private static async Task StartEnumerationAndForget(bool              unordered,
+                                                      CancellationToken cancellationToken)
+  {
+    var enumerator = GenerateInts(10)
+                     .ParallelSelect(new ParallelTaskOptions(unordered,
+                                                             2,
+                                                             cancellationToken),
+                                     Task.FromResult)
+                     .GetAsyncEnumerator();
+
+    await enumerator.MoveNextAsync()
+                    .ConfigureAwait(false);
+  }
+
+  private static async Task<long> CollectAndMeasure()
+  {
+    // Let the abandoned enumerations be finalized, and their tasks complete
+    for (var i = 0; i < 3; ++i)
+    {
+      GC.Collect();
+      GC.WaitForPendingFinalizers();
+      await Task.Delay(50)
+                .ConfigureAwait(false);
+    }
+
+    return GC.GetTotalMemory(true);
+  }
+
   private static ParallelTaskOptions? CreateOptions(bool?              unordered,
                                                     int?               parallelism,
                                                     CancellationToken? cancellationToken)
