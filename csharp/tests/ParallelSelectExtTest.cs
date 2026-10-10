@@ -921,34 +921,44 @@ public class ParallelSelectExtTest
     // Long-lived token, like an application lifetime token
     using var cts = new CancellationTokenSource();
 
-    const int n = 10000;
+    const int n      = 10000;
+    const int rounds = 3;
 
-    // Warm-up with as many enumerations to exclude the memory retained for reuse, independently of n:
-    // eg: thread pool queues, and the registration nodes of cancellationToken, kept for the peak number of registrations
-    for (var i = 0; i < n; ++i)
+    // Some memory is retained for reuse, up to the peak usage of a round: thread pool queues, and the registration
+    // nodes of cancellationToken. A leak grows with each round instead: the measurement starts after warm-up rounds.
+    var before = 0L;
+    for (var round = 0; round < 2; ++round)
     {
-      await StartEnumerationAndForget(unordered,
-                                      cts.Token)
-        .ConfigureAwait(false);
+      for (var i = 0; i < n; ++i)
+      {
+        await StartEnumerationAndForget(unordered,
+                                        cts.Token)
+          .ConfigureAwait(false);
+      }
+
+      before = await CollectAndMeasure()
+                 .ConfigureAwait(false);
     }
 
-    var before = await CollectAndMeasure()
-                   .ConfigureAwait(false);
-
-    for (var i = 0; i < n; ++i)
+    var after = before;
+    for (var round = 0; round < rounds; ++round)
     {
-      await StartEnumerationAndForget(unordered,
-                                      cts.Token)
-        .ConfigureAwait(false);
+      for (var i = 0; i < n; ++i)
+      {
+        await StartEnumerationAndForget(unordered,
+                                        cts.Token)
+          .ConfigureAwait(false);
+      }
+
+      // Finalize the abandoned enumerations of this round, so that the peak usage stays the one of a single round
+      after = await CollectAndMeasure()
+                .ConfigureAwait(false);
     }
 
-    var after = await CollectAndMeasure()
-                  .ConfigureAwait(false);
-
-    // Each enumeration used to leave about 150 bytes registered on the token (1.5 MB in total),
-    // while the remaining growth does not depend on n (up to about 300 KB seen)
+    // Each enumeration used to leave about 150 bytes registered on the token (4.3 MB in total),
+    // while the memory retained for reuse varies by up to about 0.3 MB
     Assert.That(after - before,
-                Is.LessThan(n * 50));
+                Is.LessThan(rounds * n * 50));
   }
 
   [MethodImpl(MethodImplOptions.NoInlining)]
