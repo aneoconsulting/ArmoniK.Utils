@@ -86,6 +86,40 @@ internal static class ParallelSelectInternal
                            ? new SemaphoreSlim(parallelism)
                            : null;
 
+    // Calls func on the thread pool, so that its synchronous part does not block the producer
+    async Task<TOutput> Call(TInput x)
+    {
+      // Task.Yield is cheaper, but continues on the current context, that may not be the thread pool
+      if (IsThreadPoolContext())
+      {
+        await Task.Yield();
+      }
+      else
+      {
+        await YieldToThreadPool();
+      }
+
+      // Do not start func once the enumeration has ended
+      globalToken.ThrowIfCancellationRequested();
+
+      try
+      {
+        // Not cancelled upon errors, as previous results must still be yielded
+        return await func(x,
+                          globalToken)
+                 .ConfigureAwait(false);
+      }
+      catch
+      {
+        errorCts.Cancel();
+        throw;
+      }
+      finally
+      {
+        parallelismSem?.Release();
+      }
+    }
+
     [SuppressMessage("ReSharper",
                      "PossibleMultipleEnumeration")]
     async Task Run()
@@ -102,26 +136,7 @@ internal static class ParallelSelectInternal
                                 .ConfigureAwait(false);
           }
 
-          var task = Task.Run(async () =>
-                              {
-                                try
-                                {
-                                  // Not cancelled upon errors, as previous results must still be yielded
-                                  return await func(x,
-                                                    globalToken)
-                                           .ConfigureAwait(false);
-                                }
-                                catch
-                                {
-                                  errorCts.Cancel();
-                                  throw;
-                                }
-                                finally
-                                {
-                                  parallelismSem?.Release();
-                                }
-                              },
-                              globalToken);
+          var task = Call(x);
 
           channel.Writer.TryWrite(task);
         }
@@ -261,6 +276,55 @@ internal static class ParallelSelectInternal
       }
     }
 
+    // Calls func on the thread pool, so that its synchronous part does not block the producer
+    async Task Call(TInput x)
+    {
+      // Task.Yield is cheaper, but continues on the current context, that may not be the thread pool
+      if (IsThreadPoolContext())
+      {
+        await Task.Yield();
+      }
+      else
+      {
+        await YieldToThreadPool();
+      }
+
+      try
+      {
+        if (iterationToken.IsCancellationRequested)
+        {
+          return;
+        }
+
+        TOutput res;
+        try
+        {
+          // Also cancelled upon errors, as the next results would be discarded
+          res = await func(x,
+                           iterationToken)
+                  .ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+          // Forward the error and stop the iteration
+          Fail(e);
+          errorCts.Cancel();
+          return;
+        }
+        finally
+        {
+          parallelismSem?.Release();
+        }
+
+        // Fails silently if the channel has already been completed by an error
+        channel.Writer.TryWrite(res);
+      }
+      finally
+      {
+        Release();
+      }
+    }
+
     [SuppressMessage("ReSharper",
                      "PossibleMultipleEnumeration")]
     async Task Run()
@@ -281,44 +345,7 @@ internal static class ParallelSelectInternal
           // to avoid counter going to zero before being incremented
           Interlocked.Increment(ref nbRef);
 
-          // Not cancellable, so that the reference is always released
-          _ = Task.Run(async () =>
-                       {
-                         try
-                         {
-                           if (iterationToken.IsCancellationRequested)
-                           {
-                             return;
-                           }
-
-                           TOutput res;
-                           try
-                           {
-                             // Also cancelled upon errors, as the next results would be discarded
-                             res = await func(x,
-                                              iterationToken)
-                                     .ConfigureAwait(false);
-                           }
-                           catch (Exception e)
-                           {
-                             // Forward the error and stop the iteration
-                             Fail(e);
-                             errorCts.Cancel();
-                             return;
-                           }
-                           finally
-                           {
-                             parallelismSem?.Release();
-                           }
-
-                           // Fails silently if the channel has already been completed by an error
-                           channel.Writer.TryWrite(res);
-                         }
-                         finally
-                         {
-                           Release();
-                         }
-                       });
+          _ = Call(x);
         }
       }
       catch (Exception e)
@@ -356,5 +383,46 @@ internal static class ParallelSelectInternal
         await done.Task.ConfigureAwait(false);
       }
     }
+  }
+
+  /// <summary>
+  ///   Whether <see cref="Task.Yield" /> would continue on the thread pool.
+  /// </summary>
+  /// <returns>True if there is no SynchronizationContext and the current TaskScheduler is the default one</returns>
+  private static bool IsThreadPoolContext()
+    => SynchronizationContext.Current is null && TaskScheduler.Current == TaskScheduler.Default;
+
+  /// <summary>
+  ///   Continues the current method on the thread pool.
+  /// </summary>
+  /// <remarks>
+  ///   Unlike <see cref="Task.Yield" />, it ignores the current SynchronizationContext and TaskScheduler:
+  ///   the producer may run on a foreign context if the source completes inline from it.
+  /// </remarks>
+  /// <returns>An awaitable that always continues on the thread pool</returns>
+  private static ThreadPoolAwaitable YieldToThreadPool()
+    => default;
+
+  private readonly struct ThreadPoolAwaitable : ICriticalNotifyCompletion
+  {
+    private static readonly WaitCallback RunContinuation = state => ((Action)state!)();
+
+    public ThreadPoolAwaitable GetAwaiter()
+      => this;
+
+    public bool IsCompleted
+      => false;
+
+    public void GetResult()
+    {
+    }
+
+    public void OnCompleted(Action continuation)
+      => ThreadPool.QueueUserWorkItem(RunContinuation,
+                                      continuation);
+
+    public void UnsafeOnCompleted(Action continuation)
+      => ThreadPool.UnsafeQueueUserWorkItem(RunContinuation,
+                                            continuation);
   }
 }

@@ -21,6 +21,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Sources;
 
 using NUnit.Framework;
 
@@ -1111,6 +1112,134 @@ public class ParallelSelectExtTest
                 Throws.TypeOf<ApplicationException>());
     Assert.That(running,
                 Is.Zero);
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  [Retry(4)]
+  public async Task SynchronousFuncWithForeignContext([Values] bool unordered)
+  {
+    const int n           = 16;
+    const int parallelism = 4;
+
+    using var context = new SingleThreadSynchronizationContext();
+
+    var running    = 0;
+    var maxRunning = 0;
+
+    // Fully synchronous function: parallelism relies on ParallelSelect running it on the thread pool
+    Task<int> F(int x)
+    {
+      InterlockedMax(ref maxRunning,
+                     Interlocked.Increment(ref running));
+      Thread.Sleep(50);
+      Interlocked.Decrement(ref running);
+      return Task.FromResult(x);
+    }
+
+    var results = await new ContextSource(context,
+                                          n).ParallelSelect(new ParallelTaskOptions(unordered,
+                                                                                    parallelism),
+                                                            F)
+                                            .ToListAsync()
+                                            .ConfigureAwait(false);
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(results,
+                                  Has.Count.EqualTo(n));
+                      Assert.That(maxRunning,
+                                  Is.EqualTo(parallelism));
+                    });
+  }
+
+  /// <summary>
+  ///   Source whose items are completed from the given context, without the inlining protection of Task:
+  ///   the consumer of the source continues on the context thread.
+  /// </summary>
+  private sealed class ContextSource(SynchronizationContext context,
+                                     int                    n) : IAsyncEnumerable<int>, IAsyncEnumerator<int>, IValueTaskSource<bool>
+  {
+    private ManualResetValueTaskSourceCore<bool> core_;
+
+    public IAsyncEnumerator<int> GetAsyncEnumerator(CancellationToken cancellationToken = default)
+      => this;
+
+    public int Current { get; private set; } = -1;
+
+    public ValueTask<bool> MoveNextAsync()
+    {
+      core_.Reset();
+      context.Post(_ =>
+                   {
+                     Current += 1;
+                     core_.SetResult(Current < n);
+                   },
+                   null);
+      return new ValueTask<bool>(this,
+                                 core_.Version);
+    }
+
+    public ValueTask DisposeAsync()
+      => default;
+
+    public bool GetResult(short token)
+      => core_.GetResult(token);
+
+    public ValueTaskSourceStatus GetStatus(short token)
+      => core_.GetStatus(token);
+
+    public void OnCompleted(Action<object?>                 continuation,
+                            object?                         state,
+                            short                           token,
+                            ValueTaskSourceOnCompletedFlags flags)
+      => core_.OnCompleted(continuation,
+                           state,
+                           token,
+                           flags);
+  }
+
+  private sealed class SingleThreadSynchronizationContext : SynchronizationContext, IDisposable
+  {
+    private readonly BlockingCollection<(SendOrPostCallback callback, object? state)> queue_ = new();
+    private readonly Thread                                                           thread_;
+
+    public SingleThreadSynchronizationContext()
+    {
+      thread_ = new Thread(() =>
+                           {
+                             SetSynchronizationContext(this);
+                             foreach (var (callback, state) in queue_.GetConsumingEnumerable())
+                             {
+                               callback(state);
+                             }
+                           })
+                {
+                  IsBackground = true,
+                };
+      thread_.Start();
+    }
+
+    public void Dispose()
+    {
+      queue_.CompleteAdding();
+      thread_.Join();
+      queue_.Dispose();
+    }
+
+    public override void Post(SendOrPostCallback d,
+                              object?            state)
+    {
+      try
+      {
+        queue_.Add((d, state));
+      }
+      catch (InvalidOperationException)
+      {
+        // The context is disposed: run the callback on the thread pool instead
+        ThreadPool.QueueUserWorkItem(_ => d(state));
+      }
+    }
   }
 
   private static ParallelTaskOptions? CreateOptions(bool?              unordered,
