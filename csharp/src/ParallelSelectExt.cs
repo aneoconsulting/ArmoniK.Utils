@@ -17,6 +17,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 using JetBrains.Annotations;
@@ -33,6 +34,115 @@ public static class ParallelSelectExt
   ///   The maximum number of tasks in flight at any given moment is given in the `parallelTaskOptions`.
   ///   All results are collected in-order.
   /// </summary>
+  /// <remarks>
+  ///   When the enumeration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
+  /// <param name="enumerable">Enumerable to iterate on</param>
+  /// <param name="parallelTaskOptions">Options (eg: parallelismLimit, cancellationToken)</param>
+  /// <param name="func">
+  ///   Function to spawn on the enumerable input.
+  ///   Its cancellation token is cancelled when the enumeration ends or is cancelled.
+  ///   In unordered mode, it is also cancelled as soon as a call to `func` fails.
+  /// </param>
+  /// <typeparam name="TInput">Type of the inputs</typeparam>
+  /// <typeparam name="TOutput">Type of the outputs</typeparam>
+  /// <returns>Asynchronous results of func over the inputs</returns>
+  [PublicAPI]
+  public static IAsyncEnumerable<TOutput> ParallelSelect<TInput, TOutput>(this IEnumerable<TInput>                       enumerable,
+                                                                          ParallelTaskOptions                            parallelTaskOptions,
+                                                                          Func<TInput, CancellationToken, Task<TOutput>> func)
+    => enumerable.ToAsyncEnumerable()
+                 .ParallelSelect(parallelTaskOptions,
+                                 func);
+
+  /// <summary>
+  ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
+  ///   The maximum number of tasks in flight at any given moment is given in the `parallelTaskOptions`.
+  ///   All results are collected in-order.
+  /// </summary>
+  /// <remarks>
+  ///   When the enumeration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
+  /// <param name="enumerable">Enumerable to iterate on</param>
+  /// <param name="parallelTaskOptions">Options (eg: parallelismLimit, cancellationToken)</param>
+  /// <param name="func">
+  ///   Function to spawn on the enumerable input.
+  ///   Its cancellation token is cancelled when the enumeration ends or is cancelled.
+  ///   In unordered mode, it is also cancelled as soon as a call to `func` fails.
+  /// </param>
+  /// <typeparam name="TInput">Type of the inputs</typeparam>
+  /// <typeparam name="TOutput">Type of the outputs</typeparam>
+  /// <returns>Asynchronous results of func over the inputs</returns>
+  [PublicAPI]
+  public static IAsyncEnumerable<TOutput> ParallelSelect<TInput, TOutput>(this IAsyncEnumerable<TInput>                  enumerable,
+                                                                          ParallelTaskOptions                            parallelTaskOptions,
+                                                                          Func<TInput, CancellationToken, Task<TOutput>> func)
+    => ParallelSelectInternal.ParallelSelect(enumerable,
+                                             func,
+                                             parallelTaskOptions.ParallelismLimit,
+                                             parallelTaskOptions.BufferLimit,
+                                             parallelTaskOptions.Unordered,
+                                             parallelTaskOptions.CancellationToken);
+
+  /// <summary>
+  ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
+  ///   At most "number of thread" tasks will be running at any given time.
+  ///   All results are collected in-order.
+  /// </summary>
+  /// <remarks>
+  ///   When the enumeration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
+  /// <param name="enumerable">Enumerable to iterate on</param>
+  /// <param name="func">
+  ///   Function to spawn on the enumerable input.
+  ///   Its cancellation token is cancelled when the enumeration ends or is cancelled.
+  ///   In unordered mode, it is also cancelled as soon as a call to `func` fails.
+  /// </param>
+  /// <typeparam name="TInput">Type of the inputs</typeparam>
+  /// <typeparam name="TOutput">Type of the outputs</typeparam>
+  /// <returns>Asynchronous results of func over the inputs</returns>
+  [PublicAPI]
+  public static IAsyncEnumerable<TOutput> ParallelSelect<TInput, TOutput>(this IEnumerable<TInput>                       enumerable,
+                                                                          Func<TInput, CancellationToken, Task<TOutput>> func)
+    => enumerable.ParallelSelect(default,
+                                 func);
+
+  /// <summary>
+  ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
+  ///   At most "number of thread" tasks will be running at any given time.
+  ///   All results are collected in-order.
+  /// </summary>
+  /// <remarks>
+  ///   When the enumeration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
+  /// <param name="enumerable">Enumerable to iterate on</param>
+  /// <param name="func">
+  ///   Function to spawn on the enumerable input.
+  ///   Its cancellation token is cancelled when the enumeration ends or is cancelled.
+  ///   In unordered mode, it is also cancelled as soon as a call to `func` fails.
+  /// </param>
+  /// <typeparam name="TInput">Type of the inputs</typeparam>
+  /// <typeparam name="TOutput">Type of the outputs</typeparam>
+  /// <returns>Asynchronous results of func over the inputs</returns>
+  [PublicAPI]
+  public static IAsyncEnumerable<TOutput> ParallelSelect<TInput, TOutput>(this IAsyncEnumerable<TInput>                  enumerable,
+                                                                          Func<TInput, CancellationToken, Task<TOutput>> func)
+    => enumerable.ParallelSelect(default,
+                                 func);
+
+  /// <summary>
+  ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
+  ///   The maximum number of tasks in flight at any given moment is given in the `parallelTaskOptions`.
+  ///   All results are collected in-order.
+  /// </summary>
+  /// <remarks>
+  ///   When the enumeration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="parallelTaskOptions">Options (eg: parallelismLimit, cancellationToken)</param>
   /// <param name="func">Function to spawn on the enumerable input</param>
@@ -43,15 +153,19 @@ public static class ParallelSelectExt
   public static IAsyncEnumerable<TOutput> ParallelSelect<TInput, TOutput>(this IEnumerable<TInput>    enumerable,
                                                                           ParallelTaskOptions         parallelTaskOptions,
                                                                           Func<TInput, Task<TOutput>> func)
-    => enumerable.ToAsyncEnumerable()
-                 .ParallelSelect(parallelTaskOptions,
-                                 func);
+    => enumerable.ParallelSelect(parallelTaskOptions,
+                                 (x,
+                                  _) => func(x));
 
   /// <summary>
   ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
   ///   The maximum number of tasks in flight at any given moment is given in the `parallelTaskOptions`.
   ///   All results are collected in-order.
   /// </summary>
+  /// <remarks>
+  ///   When the enumeration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="parallelTaskOptions">Options (eg: parallelismLimit, cancellationToken)</param>
   /// <param name="func">Function to spawn on the enumerable input</param>
@@ -62,21 +176,19 @@ public static class ParallelSelectExt
   public static IAsyncEnumerable<TOutput> ParallelSelect<TInput, TOutput>(this IAsyncEnumerable<TInput> enumerable,
                                                                           ParallelTaskOptions           parallelTaskOptions,
                                                                           Func<TInput, Task<TOutput>>   func)
-    => parallelTaskOptions.Unordered
-         ? ParallelSelectInternal.ParallelSelectUnordered(enumerable,
-                                                          func,
-                                                          parallelTaskOptions.ParallelismLimit,
-                                                          parallelTaskOptions.CancellationToken)
-         : ParallelSelectInternal.ParallelSelectOrdered(enumerable,
-                                                        func,
-                                                        parallelTaskOptions.ParallelismLimit,
-                                                        parallelTaskOptions.CancellationToken);
+    => enumerable.ParallelSelect(parallelTaskOptions,
+                                 (x,
+                                  _) => func(x));
 
   /// <summary>
   ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
   ///   At most "number of thread" tasks will be running at any given time.
   ///   All results are collected in-order.
   /// </summary>
+  /// <remarks>
+  ///   When the enumeration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="func">Function to spawn on the enumerable input</param>
   /// <typeparam name="TInput">Type of the inputs</typeparam>
@@ -93,6 +205,10 @@ public static class ParallelSelectExt
   ///   At most "number of thread" tasks will be running at any given time.
   ///   All results are collected in-order.
   /// </summary>
+  /// <remarks>
+  ///   When the enumeration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="func">Function to spawn on the enumerable input</param>
   /// <typeparam name="TInput">Type of the inputs</typeparam>
@@ -107,41 +223,62 @@ public static class ParallelSelectExt
   /// <summary>
   ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
   ///   The maximum number of tasks in flight at any given moment is given in the `parallelTaskOptions`.
-  ///   All results are collected in-order.
+  ///   Tasks are not awaited in-order, whatever the value of `Unordered` in the options.
   /// </summary>
+  /// <remarks>
+  ///   When the iteration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="parallelTaskOptions">Options (eg: parallelismLimit, cancellationToken)</param>
-  /// <param name="func">Function to spawn on the enumerable input</param>
+  /// <param name="func">
+  ///   Function to spawn on the enumerable input.
+  ///   Its cancellation token is cancelled when the iteration ends or is cancelled,
+  ///   or as soon as a call to `func` fails.
+  /// </param>
   /// <typeparam name="TInput">Type of the inputs</typeparam>
-  /// <returns>Asynchronous results of func over the inputs</returns>
+  /// <returns>Task completed when all the calls to `func` have completed</returns>
   [PublicAPI]
-  public static Task ParallelForEach<TInput>(this IEnumerable<TInput> enumerable,
-                                             ParallelTaskOptions      parallelTaskOptions,
-                                             Func<TInput, Task>       func)
+  public static Task ParallelForEach<TInput>(this IEnumerable<TInput>              enumerable,
+                                             ParallelTaskOptions                   parallelTaskOptions,
+                                             Func<TInput, CancellationToken, Task> func)
     => enumerable.ToAsyncEnumerable()
                  .ParallelForEach(parallelTaskOptions,
                                   func);
 
-
   /// <summary>
   ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
   ///   The maximum number of tasks in flight at any given moment is given in the `parallelTaskOptions`.
-  ///   All results are collected in-order.
+  ///   Tasks are not awaited in-order, whatever the value of `Unordered` in the options.
   /// </summary>
+  /// <remarks>
+  ///   When the iteration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="parallelTaskOptions">Options (eg: parallelismLimit, cancellationToken)</param>
-  /// <param name="func">Function to spawn on the enumerable input</param>
+  /// <param name="func">
+  ///   Function to spawn on the enumerable input.
+  ///   Its cancellation token is cancelled when the iteration ends or is cancelled,
+  ///   or as soon as a call to `func` fails.
+  /// </param>
   /// <typeparam name="TInput">Type of the inputs</typeparam>
-  /// <returns>Asynchronous results of func over the inputs</returns>
+  /// <returns>Task completed when all the calls to `func` have completed</returns>
   [PublicAPI]
-  public static async Task ParallelForEach<TInput>(this IAsyncEnumerable<TInput> enumerable,
-                                                   ParallelTaskOptions           parallelTaskOptions,
-                                                   Func<TInput, Task>            func)
+  public static async Task ParallelForEach<TInput>(this IAsyncEnumerable<TInput>         enumerable,
+                                                   ParallelTaskOptions                   parallelTaskOptions,
+                                                   Func<TInput, CancellationToken, Task> func)
   {
-    await foreach (var _ in enumerable.ParallelSelect(parallelTaskOptions,
-                                                      async x =>
+    // Results are discarded: unordered avoids waiting for a slow task before starting the next ones
+    await foreach (var _ in enumerable.ParallelSelect(parallelTaskOptions with
                                                       {
-                                                        await func(x)
+                                                        Unordered = true,
+                                                      },
+                                                      async (x,
+                                                             cancellationToken) =>
+                                                      {
+                                                        await func(x,
+                                                                   cancellationToken)
                                                           .ConfigureAwait(false);
                                                         return new ValueTuple();
                                                       }))
@@ -152,28 +289,125 @@ public static class ParallelSelectExt
   /// <summary>
   ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
   ///   At most "number of thread" tasks will be running at any given time.
-  ///   All results are collected in-order.
+  ///   Tasks are not awaited in-order, whatever the value of `Unordered` in the options.
   /// </summary>
+  /// <remarks>
+  ///   When the iteration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
+  /// <param name="enumerable">Enumerable to iterate on</param>
+  /// <param name="func">
+  ///   Function to spawn on the enumerable input.
+  ///   Its cancellation token is cancelled when the iteration ends or is cancelled,
+  ///   or as soon as a call to `func` fails.
+  /// </param>
+  /// <typeparam name="TInput">Type of the inputs</typeparam>
+  /// <returns>Task completed when all the calls to `func` have completed</returns>
+  [PublicAPI]
+  public static Task ParallelForEach<TInput>(this IEnumerable<TInput>              enumerable,
+                                             Func<TInput, CancellationToken, Task> func)
+    => enumerable.ParallelForEach(default,
+                                  func);
+
+  /// <summary>
+  ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
+  ///   At most "number of thread" tasks will be running at any given time.
+  ///   Tasks are not awaited in-order, whatever the value of `Unordered` in the options.
+  /// </summary>
+  /// <remarks>
+  ///   When the iteration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
+  /// <param name="enumerable">Enumerable to iterate on</param>
+  /// <param name="func">
+  ///   Function to spawn on the enumerable input.
+  ///   Its cancellation token is cancelled when the iteration ends or is cancelled,
+  ///   or as soon as a call to `func` fails.
+  /// </param>
+  /// <typeparam name="TInput">Type of the inputs</typeparam>
+  /// <returns>Task completed when all the calls to `func` have completed</returns>
+  [PublicAPI]
+  public static Task ParallelForEach<TInput>(this IAsyncEnumerable<TInput>         enumerable,
+                                             Func<TInput, CancellationToken, Task> func)
+    => enumerable.ParallelForEach(default,
+                                  func);
+
+  /// <summary>
+  ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
+  ///   The maximum number of tasks in flight at any given moment is given in the `parallelTaskOptions`.
+  ///   Tasks are not awaited in-order, whatever the value of `Unordered` in the options.
+  /// </summary>
+  /// <remarks>
+  ///   When the iteration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
+  /// <param name="enumerable">Enumerable to iterate on</param>
+  /// <param name="parallelTaskOptions">Options (eg: parallelismLimit, cancellationToken)</param>
+  /// <param name="func">Function to spawn on the enumerable input</param>
+  /// <typeparam name="TInput">Type of the inputs</typeparam>
+  /// <returns>Task completed when all the calls to `func` have completed</returns>
+  [PublicAPI]
+  public static Task ParallelForEach<TInput>(this IEnumerable<TInput> enumerable,
+                                             ParallelTaskOptions      parallelTaskOptions,
+                                             Func<TInput, Task>       func)
+    => enumerable.ParallelForEach(parallelTaskOptions,
+                                  (x,
+                                   _) => func(x));
+
+  /// <summary>
+  ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
+  ///   The maximum number of tasks in flight at any given moment is given in the `parallelTaskOptions`.
+  ///   Tasks are not awaited in-order, whatever the value of `Unordered` in the options.
+  /// </summary>
+  /// <remarks>
+  ///   When the iteration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
+  /// <param name="enumerable">Enumerable to iterate on</param>
+  /// <param name="parallelTaskOptions">Options (eg: parallelismLimit, cancellationToken)</param>
+  /// <param name="func">Function to spawn on the enumerable input</param>
+  /// <typeparam name="TInput">Type of the inputs</typeparam>
+  /// <returns>Task completed when all the calls to `func` have completed</returns>
+  [PublicAPI]
+  public static Task ParallelForEach<TInput>(this IAsyncEnumerable<TInput> enumerable,
+                                             ParallelTaskOptions           parallelTaskOptions,
+                                             Func<TInput, Task>            func)
+    => enumerable.ParallelForEach(parallelTaskOptions,
+                                  (x,
+                                   _) => func(x));
+
+  /// <summary>
+  ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
+  ///   At most "number of thread" tasks will be running at any given time.
+  ///   Tasks are not awaited in-order, whatever the value of `Unordered` in the options.
+  /// </summary>
+  /// <remarks>
+  ///   When the iteration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="func">Function to spawn on the enumerable input</param>
   /// <typeparam name="TInput">Type of the inputs</typeparam>
-  /// <returns>Asynchronous results of func over the inputs</returns>
+  /// <returns>Task completed when all the calls to `func` have completed</returns>
   [PublicAPI]
   public static Task ParallelForEach<TInput>(this IEnumerable<TInput> enumerable,
                                              Func<TInput, Task>       func)
     => enumerable.ParallelForEach(default,
                                   func);
 
-
   /// <summary>
   ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
   ///   At most "number of thread" tasks will be running at any given time.
-  ///   All results are collected in-order.
+  ///   Tasks are not awaited in-order, whatever the value of `Unordered` in the options.
   /// </summary>
+  /// <remarks>
+  ///   When the iteration ends (fully consumed, stopped early, failed or cancelled),
+  ///   it waits for all the calls to `func` that have been started.
+  /// </remarks>
   /// <param name="enumerable">Enumerable to iterate on</param>
   /// <param name="func">Function to spawn on the enumerable input</param>
   /// <typeparam name="TInput">Type of the inputs</typeparam>
-  /// <returns>Asynchronous results of func over the inputs</returns>
+  /// <returns>Task completed when all the calls to `func` have completed</returns>
   [PublicAPI]
   public static Task ParallelForEach<TInput>(this IAsyncEnumerable<TInput> enumerable,
                                              Func<TInput, Task>            func)
