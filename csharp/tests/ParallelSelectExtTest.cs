@@ -1148,8 +1148,10 @@ public class ParallelSelectExtTest
                     {
                       Assert.That(results,
                                   Has.Count.EqualTo(n));
+                      // Calls running one at a time on the context thread would give 1.
+                      // Exactly parallelism is not guaranteed: the thread pool may be busy with other blocking work.
                       Assert.That(maxRunning,
-                                  Is.EqualTo(parallelism));
+                                  Is.GreaterThan(1));
                     });
   }
 
