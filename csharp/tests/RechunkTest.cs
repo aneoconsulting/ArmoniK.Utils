@@ -111,7 +111,7 @@ public class RechunkTest
     }
   }
 
-  // Rechunk without timeout, or through the timed code path with a timeout that never expires
+  // The timed code path is used with a timeout that never expires
   private static IAsyncEnumerable<ReadOnlyMemory<int>> Rechunk(IAsyncEnumerable<ReadOnlyMemory<int>> source,
                                                                int                                   min,
                                                                int                                   max,
@@ -184,7 +184,7 @@ public class RechunkTest
     var input = RandomChunks(maxInputSize,
                              seed);
 
-    // Each chunk must be consumed before requesting the next one, as the source reuses its memory
+    // The source reuses its memory: each chunk must be consumed before the next one
     var output = new List<int[]>();
     await foreach (var chunk in Rechunk(ToReusedMemory(input),
                                         min,
@@ -311,7 +311,7 @@ public class RechunkTest
                   },
                 };
 
-    // 1 + 2 = 3 < 4: 1 more element is needed from the third chunk, and the remaining 6 are yielded without copy
+    // 1 + 2 < 4: one element is taken from the third chunk, the remaining 6 are not copied
     var output = await ToMemories(input)
                        .Rechunk(4,
                                 6)
@@ -361,7 +361,7 @@ public class RechunkTest
                   },
                 };
 
-    // 2 + 2 = 4 reaches the minimum, but the remaining 2 elements could not be yielded on their own
+    // The remaining 2 elements could not be yielded alone: they are absorbed
     var output = await ToMemories(input)
                        .Rechunk(4,
                                 6)
@@ -488,7 +488,7 @@ public class RechunkTest
                 },
                 Throws.InstanceOf<OperationCanceledException>());
 
-    // The whole first input chunk is yielded (the last element through the buffer), but the second is never fetched
+    // The first input chunk is entirely yielded, but the second one is never fetched
     Assert.That(output,
                 Is.EqualTo(new[]
                            {
@@ -643,7 +643,7 @@ public class RechunkTest
                                           flusher: flusher)
                                  .GetAsyncEnumerator();
 
-    // [0, 1] is buffered and the source is waiting: nothing can be yielded
+    // [0, 1] is buffered while the source is waiting
     var move = enumerator.MoveNextAsync();
     await Task.Delay(100)
               .ConfigureAwait(false);
@@ -697,7 +697,7 @@ public class RechunkTest
                                           flusher: flusher)
                                  .GetAsyncEnumerator();
 
-    // Nothing is buffered yet: this request must not affect the data buffered afterward
+    // Nothing is buffered yet: ignored
     flusher.Flush();
 
     var move = enumerator.MoveNextAsync();
@@ -764,7 +764,7 @@ public class RechunkTest
   {
     var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    // 5 elements with [3, 4]: a slice of 4 is yielded, and the last element is buffered
+    // A slice of 4 is yielded, and the last element is buffered
     await using var enumerator = Gated(new[]
                                        {
                                          Enumerable.Range(0,
@@ -784,7 +784,7 @@ public class RechunkTest
     Assert.That(enumerator.Current.Length,
                 Is.EqualTo(4));
 
-    // The consumer is slower than maxDelay: the remainder has been waiting since the arrival of its input chunk
+    // The consumer is slower than maxDelay: the remainder is already due
     await Task.Delay(1100)
               .ConfigureAwait(false);
 
@@ -813,7 +813,7 @@ public class RechunkTest
   {
     var flusher = new ChunkFlusher();
 
-    // The source is always ready: a pending flush does not prevent merging what is available
+    // The source is always ready: available data is merged before flushing
     async IAsyncEnumerable<ReadOnlyMemory<int>> Source()
     {
       await Task.Yield();
@@ -839,7 +839,7 @@ public class RechunkTest
                        .ToListAsync()
                        .ConfigureAwait(false);
 
-    // The flush is observed after merging the input chunk available at that time
+    // The flush is observed after merging the next input chunk
     Assert.That(output.Select(chunk => chunk.ToArray()),
                 Is.EqualTo(new[]
                            {
@@ -890,7 +890,7 @@ public class RechunkTest
       }
     }
 
-    // The first chunk is yielded on timeout, while the source is still fetching the next one
+    // Yielded on timeout, while the source is still fetching
     await foreach (var chunk in Source()
                                 .Rechunk(4,
                                          8,
@@ -935,7 +935,7 @@ public class RechunkTest
     await Task.Delay(50)
               .ConfigureAwait(false);
 
-    // If the enumeration continued synchronously on the thread calling Flush, it would complete on that thread
+    // Completed here if the enumeration continued on the thread calling Flush
     var completedOnFlushThread = false;
     var thread = new Thread(() =>
                             {
@@ -965,7 +965,7 @@ public class RechunkTest
   [AbortAfter(10000)]
   public async Task SourceErrorAfterEarlyYield()
   {
-    // The fetch is still pending when the buffered data is yielded on timeout, and fails afterward
+    // Fails after the buffered data has been yielded on timeout
     static async IAsyncEnumerable<ReadOnlyMemory<int>> Source()
     {
       await Task.Yield();
@@ -1042,8 +1042,7 @@ public class RechunkTest
                 Is.True);
   }
 
-  // Random asynchronous sources, short deadlines, flushes from another thread and early stops,
-  // to exercise the races between the source, the deadline, the flusher and the consumer
+  // Races between the source, the deadline, the flusher and the consumer
   [Test]
   [AbortAfter(60000)]
   public async Task ConcurrentFlushesStress([Range(0,

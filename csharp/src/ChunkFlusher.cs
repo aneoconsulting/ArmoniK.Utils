@@ -21,32 +21,24 @@ using JetBrains.Annotations;
 namespace ArmoniK.Utils;
 
 /// <summary>
-///   Trigger to yield the data currently buffered by a chunking operation, as if its timeout had expired.
+///   Trigger to yield the elements buffered by a chunking enumeration early, as if its delay had expired.
 /// </summary>
 /// <remarks>
-///   <para>
-///     A flush applies to the data buffered at the time of the request: if nothing is buffered, it has no effect,
-///     and data buffered afterward is not affected.
-///   </para>
-///   <para>
-///     The same <see cref="ChunkFlusher" /> can be shared between several chunking operations, and
-///     <see cref="Flush" /> can be called from any thread.
-///   </para>
+///   A flush only applies to the elements already buffered. A flusher can be shared between enumerations, and
+///   <see cref="Flush" /> can be called from any thread.
 /// </remarks>
 [PublicAPI]
 public sealed class ChunkFlusher
 {
   private CancellationTokenSource cts_ = new();
 
-  /// <summary>
-  ///   Token cancelled at the next call to <see cref="Flush" />
-  /// </summary>
+  // Cancelled at the next call to Flush
   internal CancellationToken Token
     => Volatile.Read(ref cts_)
                .Token;
 
   /// <summary>
-  ///   Request the chunking operations using this flusher to yield their buffered data as soon as possible.
+  ///   Yield the elements buffered by the enumerations using this flusher as soon as possible.
   /// </summary>
   public void Flush()
     => Interlocked.Exchange(ref cts_,

@@ -77,7 +77,7 @@ internal static class Chunk
   }
 
 
-  // Implementation of the ToChunksAsync function, on top of the rechunker
+  // Implementation of the ToChunksAsync function
   internal static IAsyncEnumerable<T[]> IteratorAsync<T>(IAsyncEnumerable<T> enumerable,
                                                          int                 size,
                                                          TimeSpan            maxDelay,
@@ -91,9 +91,8 @@ internal static class Chunk
                                                              flusher,
                                                              cancellationToken);
 
-  // Present each element to the rechunker as a single element chunk, backed by an array reused for all the elements.
-  // This is safe because the rechunker never keeps an input chunk across a MoveNextAsync of the source.
-  // The array is allocated lazily, so that each enumeration (which works on its own copy of the adapter) has its own.
+  // Each element is given as a chunk backed by the same array: safe as the rechunker never keeps an input chunk
+  // across a MoveNextAsync. Allocated lazily so that each enumeration (with its own adapter copy) has its own.
   private struct ElementAdapter<T> : Rechunker.IAdapter<T, T, T[]>
   {
     private T[]? box_;
@@ -105,8 +104,7 @@ internal static class Chunk
       return box_;
     }
 
-    // Chunks built by the rechunker are arrays of the exact chunk size: they can be returned as is.
-    // The reused array (produced as is only when size is 1) must be copied.
+    // Arrays built by the rechunker can be returned as is, but not the shared one (only yielded when size is 1)
     public T[] FromMemory(ReadOnlyMemory<T> chunk)
     {
       if (MemoryMarshal.TryGetArray(chunk,

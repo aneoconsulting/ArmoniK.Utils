@@ -25,17 +25,9 @@ namespace ArmoniK.Utils;
 
 internal static class Rechunker
 {
-  // Implementation of the Rechunk and ToChunksAsync functions.
-  //
-  // The splitting and merging of chunks is done by Chunker, and the decision to yield buffered data early
-  // (deadline expired, or flusher triggered) by FlushTrigger. This iterator only drives them:
-  //   - fetch the next input chunk from the source,
-  //   - if data is buffered and the source is not ready, wait for the source or the trigger, whichever comes first,
-  //   - give the input chunk to the chunker and yield the chunks it produces.
-  //
-  // When the trigger fires while waiting, the buffered data is yielded while the source is still fetching.
-  // That fetch must then be awaited (and cancelled if the enumeration stops) before the source is disposed.
-  // Errors, including cancellation, are reported once all the data received so far has been yielded.
+  // Implementation of the Rechunk and ToChunksAsync functions
+  // Chunker splits and merges the chunks, FlushTrigger decides when buffered data must be yielded early.
+  // Errors are rethrown once all the data received so far has been yielded.
   internal static async IAsyncEnumerable<TOut> IteratorAsync<TIn, T, TOut, TAdapter>(IAsyncEnumerable<TIn>                      source,
                                                                                      TAdapter                                   adapter,
                                                                                      int                                        minSize,
@@ -52,7 +44,7 @@ internal static class Rechunker
                           : new FlushTrigger(maxDelay,
                                              flusher);
 
-    // Only needed to cancel a fetch still in flight, which can only happen with a trigger
+    // Used to cancel a fetch still in flight when the enumeration stops (only possible with a trigger)
     using var sourceCts = trigger is null
                             ? null
                             : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -80,8 +72,8 @@ internal static class Rechunker
           break;
         }
 
-        // Data is buffered but the source is not ready: do not wait for it beyond the trigger.
-        // Once the source has been waited for through the trigger, it must keep being waited for through it.
+        // Data is buffered and the source is not ready: wait for the source or the trigger.
+        // A hooked fetch must be awaited through the trigger.
         if (trigger is not null && (trigger.IsHooked || (trigger.IsArmed && !next.IsCompleted)))
         {
           var due = !await trigger.WaitAsync(next)
@@ -115,13 +107,13 @@ internal static class Rechunker
           break;
         }
 
-        // The deadline of buffered data starts when it is received, not when it is buffered
+        // Deadline starts when the data is received, not when it is buffered
         var arrival = Environment.TickCount;
 
         chunker.Push(adapter.ToMemory(enumerator.Current));
         while (chunker.TryPop(out var chunk))
         {
-          // A chunk is only produced once the buffer is empty
+          // The buffer is empty when a chunk is produced
           trigger?.Disarm();
           yield return adapter.FromMemory(chunk);
         }
@@ -133,7 +125,7 @@ internal static class Rechunker
             trigger.Arm(arrival);
           }
 
-          // The source may be slow even though it completes synchronously
+          // Synchronous sources can also be slow
           if (trigger.IsDue)
           {
             trigger.Disarm();
@@ -142,7 +134,7 @@ internal static class Rechunker
         }
       }
 
-      // Last chunk can be smaller than minSize, and must be yielded even if there is an error
+      // The last chunk must be yielded even if there is an error
       if (!chunker.IsEmpty)
       {
         yield return adapter.FromMemory(chunker.Flush());
@@ -170,7 +162,7 @@ internal static class Rechunker
         }
         catch
         {
-          // The enumeration is over: the result of the fetch is irrelevant
+          // Ignored: the enumeration is over
         }
       }
 
@@ -181,27 +173,20 @@ internal static class Rechunker
     error?.RethrowWithStacktrace();
   }
 
-  // Validate maxDelay, and normalize "no timeout" to Timeout.InfiniteTimeSpan
+  // Returns Timeout.InfiniteTimeSpan if there is no timeout
   internal static TimeSpan ValidateMaxDelay(TimeSpan? maxDelay)
   {
     var delay = maxDelay ?? Timeout.InfiniteTimeSpan;
     if (delay != Timeout.InfiniteTimeSpan && (delay < TimeSpan.Zero || delay.TotalMilliseconds > int.MaxValue))
     {
-      throw new ArgumentOutOfRangeException(nameof(maxDelay),
-                                            maxDelay,
-                                            "Maximum delay must be infinite, or between 0 and int.MaxValue milliseconds");
+      throw new ArgumentOutOfRangeException(nameof(maxDelay));
     }
 
     return delay;
   }
 
-  /// <summary>
-  ///   Conversion between the items of the source, the chunks handled by the rechunker, and the yielded chunks.
-  /// </summary>
-  /// <remarks>
-  ///   Implemented by structs so that the conversions are specialized and inlined by the JIT.
-  ///   An adapter is copied for each enumeration, so it can hold per-enumeration state.
-  /// </remarks>
+  // Converts source items to chunks, and chunks to yielded items.
+  // Implemented by structs to be inlined. Each enumeration has its own copy.
   internal interface IAdapter<in TIn, T, out TOut>
   {
     ReadOnlyMemory<T> ToMemory(TIn item);
@@ -218,32 +203,20 @@ internal static class Rechunker
       => chunk;
   }
 
-  /// <summary>
-  ///   Splits and merges input chunks into chunks between minSize and maxSize.
-  /// </summary>
-  /// <remarks>
-  ///   <para>
-  ///     Input chunks within bounds are produced as is, and oversized input chunks are sliced, without any copy.
-  ///     Only fragments smaller than minSize are copied into a buffer, to be merged with the next input chunks.
-  ///     Chunks produced from the buffer are always arrays of the exact size of the chunk.
-  ///   </para>
-  ///   <para>
-  ///     Once <see cref="TryPop" /> returns false, the input chunk has been entirely consumed and is not referenced
-  ///     anymore: the source is free to reuse its memory.
-  ///   </para>
-  /// </remarks>
+  // Splits and merges input chunks into chunks between minSize and maxSize.
+  // Only the data to merge is copied, into a buffer. Chunks built from it are arrays of the exact size.
+  // Once TryPop returns false, the input chunk is not referenced anymore, so the source can reuse its memory.
   private sealed class Chunker<T>
   {
     private readonly int maxSize_;
     private readonly int minSize_;
 
-    // Fragments waiting to reach minSize. The capacity grows progressively up to minSize, so that memory stays
-    // proportional to the buffered data. Only the first count_ elements are valid, and count_ < minSize_.
+    // Grows up to minSize. Only the first count_ elements are valid, and count_ < minSize_
     private T[]? buffer_;
     private int  count_;
     private int  nextCapacity_;
 
-    // Part of the current input chunk that has not been processed yet
+    // Remaining part of the current input chunk
     private ReadOnlyMemory<T> pending_;
 
     public Chunker(int minSize,
@@ -256,17 +229,11 @@ internal static class Rechunker
     public bool IsEmpty
       => count_ == 0;
 
-    /// <summary>
-    ///   Give the next input chunk. The previous one must have been entirely consumed.
-    /// </summary>
+    // The previous input chunk must have been entirely consumed
     public void Push(ReadOnlyMemory<T> input)
       => pending_ = input;
 
-    /// <summary>
-    ///   Produce the next chunk from the current input chunk.
-    ///   The buffer is always empty when a chunk is produced.
-    /// </summary>
-    /// <returns>Whether a chunk has been produced, false when the input chunk has been entirely consumed</returns>
+    // Returns false once the input chunk has been entirely consumed. The buffer is empty when a chunk is produced.
     public bool TryPop(out ReadOnlyMemory<T> chunk)
     {
       chunk = default;
@@ -276,7 +243,7 @@ internal static class Rechunker
         return false;
       }
 
-      // Not enough data for a chunk: buffer it until the next input chunk
+      // Not enough data for a chunk
       if (count_ + length < minSize_)
       {
         Append(pending_.Span);
@@ -287,8 +254,7 @@ internal static class Rechunker
       int size;
       if (count_ > 0)
       {
-        // Complete the buffer. If what remains after reaching minSize could not be produced on its own, it would have
-        // to be copied anyway: absorb as much as possible into this chunk instead.
+        // If the remainder would be too small to be sliced, it would be copied anyway: absorb as much as possible
         var missing = minSize_ - count_;
         size = length - missing >= minSize_
                  ? missing
@@ -299,7 +265,6 @@ internal static class Rechunker
       }
       else
       {
-        // Large enough: slice it without copy
         size = SliceSize(length);
         chunk = pending_.Slice(0,
                                size);
@@ -309,9 +274,6 @@ internal static class Rechunker
       return true;
     }
 
-    /// <summary>
-    ///   Take the buffered data, as an array of the exact size.
-    /// </summary>
     public ReadOnlyMemory<T> Flush()
     {
       var count = count_;
@@ -319,20 +281,18 @@ internal static class Rechunker
 
       if (count == buffer_!.Length)
       {
-        // Buffer is full: hand it out, and allocate a fresh one of the same size for the next chunk
+        // Hand out the full buffer, the next one is allocated with the same size
         var full = buffer_;
         buffer_       = null;
         nextCapacity_ = count;
         return full;
       }
 
-      // Copy only the valid part, and keep the buffer for later
       return buffer_.AsSpan(0,
                             count)
                     .ToArray();
     }
 
-    // Take the buffered data merged with items, as an array of the exact size
     private ReadOnlyMemory<T> Merge(ReadOnlySpan<T> items)
     {
       if (count_ + items.Length == minSize_)
@@ -341,7 +301,7 @@ internal static class Rechunker
         return Flush();
       }
 
-      // Larger than the buffer can be: allocate the chunk with its exact size, and keep the buffer for later
+      // Larger than minSize: keep the buffer for later
       var array = new T[count_ + items.Length];
       buffer_.AsSpan(0,
                      count_)
@@ -351,13 +311,12 @@ internal static class Rechunker
       return array;
     }
 
-    // Append items to the buffer. The total must not exceed minSize.
+    // The total must not exceed minSize
     private void Append(ReadOnlySpan<T> items)
     {
       var required = count_ + items.Length;
       if (buffer_ is null || buffer_.Length < required)
       {
-        // Grow by 1.5x (at least 4), at least to what is required, and at most to minSize
         var length = buffer_?.Length ?? 0;
         var capacity = Math.Max(4L,
                                 length * 3L / 2);
@@ -378,7 +337,7 @@ internal static class Rechunker
       count_ = required;
     }
 
-    // Size of the next slice of a chunk of the given length, with length >= minSize
+    // length >= minSize
     private int SliceSize(int length)
     {
       if (length <= maxSize_)
@@ -393,41 +352,31 @@ internal static class Rechunker
 
       if (length - minSize_ >= minSize_)
       {
-        // Leave exactly minSize elements so that the remainder can also be produced without copy
+        // Leave minSize elements so that the remainder can also be sliced
         return length - minSize_;
       }
 
-      // Cannot be split in two valid chunks: minimize the remainder that will be copied
+      // Cannot be split in two valid chunks: minimize the remainder to copy
       return maxSize_;
     }
   }
 
-  /// <summary>
-  ///   Decides when buffered data must be yielded early: when its deadline expires (time of arrival of its oldest
-  ///   element + maxDelay), or when the flusher is triggered.
-  ///   It also waits for the source or the trigger, whichever comes first, without allocating.
-  /// </summary>
-  /// <remarks>
-  ///   <para>
-  ///     The trigger is armed while data is buffered. A flush requested while it is not armed is ignored.
-  ///   </para>
-  ///   <para>
-  ///     To wait without allocating, a continuation is registered on the pending fetch of the source (it is then
-  ///     "hooked"), and the trigger completes the same reusable <see cref="IValueTaskSource{TResult}" />.
-  ///     As a fetch accepts only one continuation, a hooked fetch must be waited for through
-  ///     <see cref="WaitAsync" /> until it completes, even if the trigger fired first.
-  ///   </para>
-  /// </remarks>
+  // Fires when the deadline of the buffered data expires, or when the flusher is triggered.
+  // Armed while data is buffered: a flush requested while not armed is ignored.
+  //
+  // WaitAsync waits for the source or the trigger without allocating: a continuation is registered on the fetch
+  // ("hooked"), and both complete the same IValueTaskSource. As a fetch accepts only one continuation,
+  // a hooked fetch must be awaited through WaitAsync until it completes, even if the trigger fired first.
   private sealed class FlushTrigger : IValueTaskSource<bool>, IDisposable
   {
-    // States of the fetch of the source
+    // States of the fetch
     private const int NotHooked  = 0;
     private const int Hooked     = 1;
     private const int Completing = 2;
     private const int Completed  = 3;
 
-    // waiting_ is NotWaiting, WaitingForNext, or the period of the current wait when the trigger can complete it.
-    // Periods are 64 bits so that they never wrap around: a stale signal can never match a later period.
+    // waiting_ is NotWaiting, WaitingForNext, or the period of the current wait if the trigger can complete it.
+    // Periods are 64 bits so that a stale signal never matches a later period.
     private const long NotWaiting     = 0;
     private const long WaitingForNext = -1;
 
@@ -435,15 +384,15 @@ internal static class Rechunker
     private readonly ChunkFlusher? flusher_;
     private readonly Action        onNextCompleted_;
 
-    private ManualResetValueTaskSourceCore<bool> core_; // Result: whether the fetch completed (false: trigger)
+    private ManualResetValueTaskSourceCore<bool> core_; // Result: whether the fetch completed
 
     private CancellationTokenSource? cts_;
     private long                     firedPeriod_; // Last period whose trigger fired
     private CancellationToken        flushToken_;
     private int                      nextState_;
-    private long                     period_; // Identifies the current armed period, > 0
+    private long                     period_; // Current armed period, > 0
     private int                      start_;
-    private bool                     started_; // Whether the timer and the flush are watched
+    private bool                     started_; // Whether the timer and the flusher are watched
     private long                     waiting_;
 
     public FlushTrigger(TimeSpan      maxDelay,
@@ -485,9 +434,7 @@ internal static class Rechunker
                            token,
                            flags);
 
-    /// <summary>
-    ///   Start the deadline for data received at <paramref name="start" /> (<see cref="Environment.TickCount" />)
-    /// </summary>
+    // start: Environment.TickCount when the data was received
     public void Arm(int start)
     {
       IsArmed     = true;
@@ -515,16 +462,11 @@ internal static class Rechunker
       cts_ = null;
     }
 
-    /// <summary>
-    ///   The completed fetch has been consumed: the next one can be hooked.
-    /// </summary>
+    // Must be called once the completed fetch has been consumed
     public void Unhook()
       => nextState_ = NotHooked;
 
-    /// <summary>
-    ///   Wait for <paramref name="next" />, or for the trigger if armed, whichever comes first.
-    /// </summary>
-    /// <returns>Whether <paramref name="next" /> completed, false if the trigger fired first</returns>
+    // Returns true if next completed, false if the trigger fired first (only possible if armed)
     public ValueTask<bool> WaitAsync(ValueTask<bool> next)
     {
       core_.Reset();
@@ -543,7 +485,7 @@ internal static class Rechunker
       }
       else if (Volatile.Read(ref nextState_) != Hooked)
       {
-        // The fetch completed before this wait: its callback may have missed it, so complete it here
+        // Completed before this wait: its callback may have missed it
         var spinner = new SpinWait();
         while (Volatile.Read(ref nextState_) != Completed)
         {
@@ -556,7 +498,7 @@ internal static class Rechunker
 
       if (IsArmed)
       {
-        // Already due, or the trigger fired before this wait. Checked after the fetch, so that available data wins.
+        // Checked after the fetch, so that available data wins
         if (IsDue || Volatile.Read(ref firedPeriod_) == period_)
         {
           TryComplete(wait,
@@ -572,7 +514,6 @@ internal static class Rechunker
                                  core_.Version);
     }
 
-    // Watch the deadline and the flusher for the current period
     private void Start()
     {
       started_ = true;
@@ -591,7 +532,7 @@ internal static class Rechunker
                           signal);
     }
 
-    // Called once the fetch completes. Nothing is done after Completed, so that the fetch can be unhooked.
+    // Nothing must be done after Completed: the fetch can then be unhooked
     private void OnNextCompleted()
     {
       Volatile.Write(ref nextState_,
@@ -609,7 +550,7 @@ internal static class Rechunker
 
     private void OnTrigger(long period)
     {
-      // Record that this period fired, unless a later one already did
+      // Monotonic, in case a stale signal arrives late
       var fired = Volatile.Read(ref firedPeriod_);
       while (fired < period)
       {
@@ -628,7 +569,6 @@ internal static class Rechunker
                   false);
     }
 
-    // Complete the current wait if it is still the given one
     private void TryComplete(long wait,
                              bool nextCompleted)
     {
@@ -640,11 +580,7 @@ internal static class Rechunker
       }
     }
 
-    /// <summary>
-    ///   Signals that the trigger fired for a given period, ignored if the period is over.
-    ///   The signal is forwarded to the thread pool, so that the enumeration never continues on the thread calling
-    ///   <see cref="ChunkFlusher.Flush" />.
-    /// </summary>
+    // Forwarded to the thread pool, so that the enumeration never continues on the thread calling Flush
     private sealed class PeriodSignal
     {
       private static readonly WaitCallback Fire = static state =>
