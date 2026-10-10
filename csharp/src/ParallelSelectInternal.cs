@@ -229,13 +229,17 @@ internal static class ParallelSelectInternal
         // Wait for the producer and all the tasks it has started
         await done.Task.ConfigureAwait(false);
 
-        // Observe the remaining errors: only the first one is reported to the consumer
+        // Observe the remaining errors: only the first one is reported to the consumer.
+        // The tasks may not be completed yet, as a call releases its reference before its task completes.
         while (channel.Reader.TryRead(out var item))
         {
-          if (!item.IsCompletedSuccessfully)
+          try
           {
-            _ = item.AsTask()
-                    .Exception;
+            await item.ConfigureAwait(false);
+          }
+          catch
+          {
+            // ignored
           }
         }
       }
