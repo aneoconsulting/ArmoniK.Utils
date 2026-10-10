@@ -18,6 +18,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -508,5 +509,123 @@ public class ChunkTest
 
     Assert.That(enumerator.MoveNextAsync,
                 Throws.InstanceOf<OperationCanceledException>());
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task ChunkAsyncWithSlowSynchronousSource()
+  {
+    // Each element takes 40 ms, but MoveNextAsync completes synchronously
+    async IAsyncEnumerable<int> Gen()
+    {
+      await Task.Yield();
+      for (var i = 0; i < 6; ++i)
+      {
+        Thread.Sleep(40);
+        yield return i;
+      }
+    }
+
+    var chunks = await Gen()
+                       .ToChunksAsync(100,
+                                      TimeSpan.FromMilliseconds(50))
+                       .ToListAsync()
+                       .ConfigureAwait(false);
+
+    Assert.That(chunks.SelectMany(chunk => chunk),
+                Is.EqualTo(Enumerable.Range(0,
+                                            6)));
+    Assert.That(chunks,
+                Has.Count.GreaterThan(1));
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task ChunkAsyncWithFlusher()
+  {
+    var flusher = new ChunkFlusher();
+    var gate    = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    async IAsyncEnumerable<int> Gen()
+    {
+      await Task.Yield();
+      yield return 0;
+      yield return 1;
+      await gate.Task.ConfigureAwait(false);
+      yield return 2;
+    }
+
+    await using var enumerator = Gen()
+                                 .ToChunksAsync(4,
+                                                flusher: flusher)
+                                 .GetAsyncEnumerator();
+
+    var move = enumerator.MoveNextAsync();
+    await Task.Delay(100)
+              .ConfigureAwait(false);
+    Assert.That(move.IsCompleted,
+                Is.False);
+
+    flusher.Flush();
+    Assert.That(await move.ConfigureAwait(false),
+                Is.True);
+    Assert.That(enumerator.Current,
+                Is.EqualTo(new[]
+                           {
+                             0,
+                             1,
+                           }));
+
+    gate.SetResult(true);
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.True);
+    Assert.That(enumerator.Current,
+                Is.EqualTo(new[]
+                           {
+                             2,
+                           }));
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.False);
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task ChunkAsyncEarlyStopWhileSourceIsFetching()
+  {
+    var disposed = false;
+
+    async IAsyncEnumerable<int> Gen([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+      try
+      {
+        yield return 0;
+        await Task.Delay(Timeout.Infinite,
+                         cancellationToken)
+                  .ConfigureAwait(false);
+        yield return 1;
+      }
+      finally
+      {
+        disposed = true;
+      }
+    }
+
+    await foreach (var chunk in Gen()
+                                .ToChunksAsync(10,
+                                               TimeSpan.FromMilliseconds(50))
+                                .ConfigureAwait(false))
+    {
+      Assert.That(chunk,
+                  Is.EqualTo(new[]
+                             {
+                               0,
+                             }));
+      break;
+    }
+
+    Assert.That(disposed,
+                Is.True);
   }
 }
