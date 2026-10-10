@@ -1042,6 +1042,51 @@ public class RechunkTest
                 Is.True);
   }
 
+  [Test]
+  [AbortAfter(10000)]
+  public async Task TimerIsReusedAcrossPeriods()
+  {
+    // Each element can only be yielded by the timer: the source waits for the consumer to receive it
+    using var received = new SemaphoreSlim(0);
+
+    async IAsyncEnumerable<ReadOnlyMemory<int>> Source()
+    {
+      for (var i = 0; i < 20; ++i)
+      {
+        await Task.Yield();
+        yield return new[]
+                     {
+                       i,
+                     };
+        await received.WaitAsync()
+                      .ConfigureAwait(false);
+      }
+    }
+
+    await using var enumerator = Source()
+                                 .Rechunk(4,
+                                          8,
+                                          TimeSpan.FromMilliseconds(2))
+                                 .GetAsyncEnumerator();
+
+    for (var i = 0; i < 20; ++i)
+    {
+      Assert.That(await enumerator.MoveNextAsync()
+                                  .ConfigureAwait(false),
+                  Is.True);
+      Assert.That(enumerator.Current.ToArray(),
+                  Is.EqualTo(new[]
+                             {
+                               i,
+                             }));
+      received.Release();
+    }
+
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.False);
+  }
+
   // Races between the source, the deadline, the flusher and the consumer
   [Test]
   [AbortAfter(60000)]

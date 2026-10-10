@@ -386,15 +386,20 @@ internal static class Rechunker
 
     private ManualResetValueTaskSourceCore<bool> core_; // Result: whether the fetch completed
 
-    private CancellationTokenSource?      cts_;
     private long                          firedPeriod_; // Last period whose trigger fired
     private CancellationTokenRegistration flushRegistration_;
     private CancellationToken             flushToken_;
     private int                           nextState_;
     private long                          period_; // Current armed period, > 0
     private int                           start_;
-    private bool                          started_; // Whether the timer and the flusher are watched
-    private long                          waiting_;
+    private bool                          started_;       // Whether the timer and the flusher are watched
+    private int                           timerDeadline_; // Environment.TickCount
+    private long                          timerPeriod_;   // 0 if stopped
+
+    // Reused across periods. The deadline is published before the period, so that the callback reading a period
+    // sees its deadline or a later one.
+    private Timer? timer_;
+    private long   waiting_;
 
     public FlushTrigger(TimeSpan      maxDelay,
                         ChunkFlusher? flusher)
@@ -418,7 +423,10 @@ internal static class Rechunker
       => delayMs_ - unchecked(Environment.TickCount - start_);
 
     public void Dispose()
-      => Disarm();
+    {
+      Disarm();
+      timer_?.Dispose();
+    }
 
     public bool GetResult(short token)
       => core_.GetResult(token);
@@ -460,8 +468,13 @@ internal static class Rechunker
 
       flushRegistration_.Dispose();
       started_ = false;
-      cts_?.Dispose();
-      cts_ = null;
+      if (timer_ is not null)
+      {
+        Volatile.Write(ref timerPeriod_,
+                       0);
+        timer_.Change(Timeout.Infinite,
+                      Timeout.Infinite);
+      }
     }
 
     // Must be called once the completed fetch has been consumed
@@ -519,21 +532,61 @@ internal static class Rechunker
     private void Start()
     {
       started_ = true;
-      var signal = new PeriodSignal(this,
-                                    period_);
       if (flushToken_.CanBeCanceled)
       {
         flushRegistration_ = flushToken_.Register(PeriodSignal.OnCancel,
-                                                  signal);
+                                                  new PeriodSignal(this,
+                                                                   period_));
       }
 
       if (delayMs_ != Timeout.Infinite)
       {
-        cts_ = new CancellationTokenSource();
-        cts_.CancelAfter(Math.Max(Remaining,
-                                  0));
-        cts_.Token.Register(PeriodSignal.OnCancel,
-                            signal);
+        if (timer_ is null)
+        {
+          // The timer must not capture the execution context of the enumeration
+          using (ExecutionContext.SuppressFlow())
+          {
+            timer_ = new Timer(static state => ((FlushTrigger)state!).OnTimer(),
+                               this,
+                               Timeout.Infinite,
+                               Timeout.Infinite);
+          }
+        }
+
+        Volatile.Write(ref timerDeadline_,
+                       unchecked(start_ + delayMs_));
+        Volatile.Write(ref timerPeriod_,
+                       period_);
+        timer_.Change(Math.Max(Remaining,
+                               0),
+                      Timeout.Infinite);
+      }
+    }
+
+    // Runs on the thread pool. May be stale: only fires if the deadline of the period read is reached.
+    private void OnTimer()
+    {
+      var period = Volatile.Read(ref timerPeriod_);
+      if (period == 0)
+      {
+        return;
+      }
+
+      var remaining = unchecked(Volatile.Read(ref timerDeadline_) - Environment.TickCount);
+      if (remaining <= 0)
+      {
+        OnTrigger(period);
+        return;
+      }
+
+      try
+      {
+        timer_!.Change(remaining,
+                       Timeout.Infinite);
+      }
+      catch (ObjectDisposedException)
+      {
+        // The enumeration is over
       }
     }
 
