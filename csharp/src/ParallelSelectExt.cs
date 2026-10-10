@@ -79,17 +79,12 @@ public static class ParallelSelectExt
   public static IAsyncEnumerable<TOutput> ParallelSelect<TInput, TOutput>(this IAsyncEnumerable<TInput>                  enumerable,
                                                                           ParallelTaskOptions                            parallelTaskOptions,
                                                                           Func<TInput, CancellationToken, Task<TOutput>> func)
-    => parallelTaskOptions.Unordered
-         ? ParallelSelectInternal.ParallelSelectUnordered(enumerable,
-                                                          func,
-                                                          parallelTaskOptions.ParallelismLimit,
-                                                          parallelTaskOptions.BufferLimit,
-                                                          parallelTaskOptions.CancellationToken)
-         : ParallelSelectInternal.ParallelSelectOrdered(enumerable,
-                                                        func,
-                                                        parallelTaskOptions.ParallelismLimit,
-                                                        parallelTaskOptions.BufferLimit,
-                                                        parallelTaskOptions.CancellationToken);
+    => ParallelSelectInternal.ParallelSelect(enumerable,
+                                             func,
+                                             parallelTaskOptions.ParallelismLimit,
+                                             parallelTaskOptions.BufferLimit,
+                                             parallelTaskOptions.Unordered,
+                                             parallelTaskOptions.CancellationToken);
 
   /// <summary>
   ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.

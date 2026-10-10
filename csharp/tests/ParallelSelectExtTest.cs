@@ -1244,6 +1244,56 @@ public class ParallelSelectExtTest
     }
   }
 
+  [Test]
+  [AbortAfter(10000)]
+  public void SourceThrowing([Values] bool unordered)
+  {
+    const int n = 20;
+
+    async IAsyncEnumerable<int> Source()
+    {
+      for (var i = 0; i < n; ++i)
+      {
+        await Task.Yield();
+        yield return i;
+      }
+
+      throw new ApplicationException();
+    }
+
+    var results = new List<int>();
+
+    Assert.That(async () =>
+                {
+                  await foreach (var x in Source()
+                                   .ParallelSelect(new ParallelTaskOptions(unordered,
+                                                                           4),
+                                                   async x =>
+                                                   {
+                                                     await Task.Delay(10)
+                                                               .ConfigureAwait(false);
+                                                     return x;
+                                                   }))
+                  {
+                    results.Add(x);
+                  }
+                },
+                Throws.TypeOf<ApplicationException>());
+
+    if (unordered)
+    {
+      // The error is reported as soon as it occurs: results of the inputs still running are discarded
+      Assert.That(results,
+                  Is.Unique.And.SubsetOf(GenerateInts(n)));
+    }
+    else
+    {
+      // The error is reported after the results of all the inputs read before it
+      Assert.That(results,
+                  Is.EqualTo(GenerateInts(n)));
+    }
+  }
+
   private static ParallelTaskOptions? CreateOptions(bool?              unordered,
                                                     int?               parallelism,
                                                     CancellationToken? cancellationToken)

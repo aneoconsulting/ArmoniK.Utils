@@ -42,15 +42,17 @@ internal static class ParallelSelectInternal
   /// <param name="func">Function to spawn on the enumerable input, cancelled when the enumeration ends</param>
   /// <param name="parallelism">Maximum number of tasks running</param>
   /// <param name="bufferLimit">Maximum number of tasks started whose result has not been yielded yet</param>
+  /// <param name="unordered">Whether results are yielded in completion order instead of input order</param>
   /// <param name="cancellationToken">Trigger cancellation of the enumeration</param>
   /// <typeparam name="TInput">Type of the inputs</typeparam>
   /// <typeparam name="TOutput">Type of the outputs</typeparam>
   /// <returns>Asynchronous results of func over the inputs</returns>
-  internal static async IAsyncEnumerable<TOutput> ParallelSelectOrdered<TInput, TOutput>(IAsyncEnumerable<TInput>                       enumerable,
-                                                                                         Func<TInput, CancellationToken, Task<TOutput>> func,
-                                                                                         int                                            parallelism,
-                                                                                         int                                            bufferLimit,
-                                                                                         [EnumeratorCancellation] CancellationToken     cancellationToken)
+  internal static async IAsyncEnumerable<TOutput> ParallelSelect<TInput, TOutput>(IAsyncEnumerable<TInput>                       enumerable,
+                                                                                  Func<TInput, CancellationToken, Task<TOutput>> func,
+                                                                                  int                                            parallelism,
+                                                                                  int                                            bufferLimit,
+                                                                                  bool                                           unordered,
+                                                                                  [EnumeratorCancellation] CancellationToken     cancellationToken)
   {
     // CancellationTokenSource used to cancel all tasks inflight upon errors
     var globalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -60,6 +62,12 @@ internal static class ParallelSelectInternal
                                                                        errorCts.Token);
     var globalToken    = globalCts.Token;
     var iterationToken = iterationCts.Token;
+
+    // In unordered mode, the next results would be discarded after an error: the calls are also cancelled upon errors.
+    // In ordered mode, the previous results must still be yielded: the calls are only cancelled when the enumeration ends.
+    var funcToken = unordered
+                      ? iterationToken
+                      : globalToken;
 
     // Ensure all running tasks are actually aborted at the end, and unregister from cancellationToken.
     // If the enumerator is not disposed, the deferrer finalizer does it: otherwise, globalCts would
@@ -77,8 +85,9 @@ internal static class ParallelSelectInternal
                                              }
                                            });
 
-    // Output
-    var channel = Channel.CreateUnbounded<Task<TOutput>>();
+    // Output: in ordered mode, the tasks are written when they start; in unordered mode, the results when they complete.
+    // Errors are written as faulted tasks, so that the consumer throws them at their position.
+    var channel = Channel.CreateUnbounded<ValueTask<TOutput>>();
 
     // Semaphores to limit the number of pending results, and the parallelism if it is lower
     var bufferSem = new SemaphoreSlim(bufferLimit);
@@ -86,184 +95,7 @@ internal static class ParallelSelectInternal
                            ? new SemaphoreSlim(parallelism)
                            : null;
 
-    // Calls func on the thread pool, so that its synchronous part does not block the producer
-    async Task<TOutput> Call(TInput x)
-    {
-      // Task.Yield is cheaper, but continues on the current context, that may not be the thread pool
-      if (IsThreadPoolContext())
-      {
-        await Task.Yield();
-      }
-      else
-      {
-        await YieldToThreadPool();
-      }
-
-      // Do not start func once the enumeration has ended
-      globalToken.ThrowIfCancellationRequested();
-
-      try
-      {
-        // Not cancelled upon errors, as previous results must still be yielded
-        return await func(x,
-                          globalToken)
-                 .ConfigureAwait(false);
-      }
-      catch
-      {
-        errorCts.Cancel();
-        throw;
-      }
-      finally
-      {
-        parallelismSem?.Release();
-      }
-    }
-
-    [SuppressMessage("ReSharper",
-                     "PossibleMultipleEnumeration")]
-    async Task Run()
-    {
-      try
-      {
-        await foreach (var x in enumerable.WithCancellation(iterationToken))
-        {
-          await bufferSem.WaitAsync(iterationToken)
-                         .ConfigureAwait(false);
-          if (parallelismSem is not null)
-          {
-            await parallelismSem.WaitAsync(iterationToken)
-                                .ConfigureAwait(false);
-          }
-
-          var task = Call(x);
-
-          channel.Writer.TryWrite(task);
-        }
-      }
-      finally
-      {
-        channel.Writer.TryComplete();
-      }
-    }
-
-    // Not cancellable, so that the producer always completes the channel
-    var run = Task.Run(Run);
-
-    try
-    {
-      await foreach (var task in channel.Reader.ToAsyncEnumerable(globalToken))
-      {
-        var res = await task.ConfigureAwait(false);
-
-        bufferSem.Release();
-
-        yield return res;
-      }
-
-      await run.ConfigureAwait(false);
-    }
-    finally
-    {
-      try
-      {
-        // Stop the producer and the running tasks
-        globalCts.Cancel();
-      }
-      finally
-      {
-        // Wait for the producer, then for all the tasks it has started.
-        // Their errors are ignored: only the first one is reported to the consumer.
-        try
-        {
-          await run.ConfigureAwait(false);
-        }
-        catch
-        {
-          // ignored
-        }
-
-        while (channel.Reader.TryRead(out var task))
-        {
-          try
-          {
-            await task.ConfigureAwait(false);
-          }
-          catch
-          {
-            // ignored
-          }
-        }
-      }
-    }
-  }
-
-  /// <summary>
-  ///   Iterates over the input enumerable and spawn multiple parallel tasks that call `func`.
-  /// </summary>
-  /// <param name="enumerable">Enumerable to iterate on</param>
-  /// <param name="func">Function to spawn on the enumerable input, cancelled when the enumeration ends</param>
-  /// <param name="parallelism">Maximum number of tasks running</param>
-  /// <param name="bufferLimit">Maximum number of tasks started whose result has not been yielded yet</param>
-  /// <param name="cancellationToken">Trigger cancellation of the enumeration</param>
-  /// <typeparam name="TInput">Type of the inputs</typeparam>
-  /// <typeparam name="TOutput">Type of the outputs</typeparam>
-  /// <returns>Asynchronous results of func over the inputs</returns>
-  internal static async IAsyncEnumerable<TOutput> ParallelSelectUnordered<TInput, TOutput>(IAsyncEnumerable<TInput>                       enumerable,
-                                                                                           Func<TInput, CancellationToken, Task<TOutput>> func,
-                                                                                           int                                            parallelism,
-                                                                                           int                                            bufferLimit,
-                                                                                           [EnumeratorCancellation] CancellationToken     cancellationToken)
-  {
-    // CancellationTokenSource used to cancel all tasks inflight upon errors
-    var globalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    // CancellationTokenSource cancelled by the tasks upon errors, never disposed as tasks may outlive the enumeration
-    var errorCts = new CancellationTokenSource();
-    var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(globalCts.Token,
-                                                                       errorCts.Token);
-    var globalToken    = globalCts.Token;
-    var iterationToken = iterationCts.Token;
-
-    // Ensure all running tasks are actually aborted at the end, and unregister from cancellationToken.
-    // If the enumerator is not disposed, the deferrer finalizer does it: otherwise, globalCts would
-    // stay registered on cancellationToken, leaking memory if cancellationToken is long-lived.
-    await using var cleanup = new Deferrer(() =>
-                                           {
-                                             try
-                                             {
-                                               globalCts.Cancel();
-                                             }
-                                             finally
-                                             {
-                                               iterationCts.Dispose();
-                                               globalCts.Dispose();
-                                             }
-                                           });
-
-    // Output, completed with the first error if any
-    var channel = Channel.CreateUnbounded<TOutput>();
-
-    // Forward the error to the consumer
-    void Fail(Exception e)
-    {
-      if (channel.Writer.TryComplete(e))
-      {
-        // The error is surfaced to the consumer, but older channel implementations
-        // also store it in Completion that is never observed
-        _ = channel.Reader.Completion.ContinueWith(t => _ = t.Exception,
-                                                   CancellationToken.None,
-                                                   TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                                                   TaskScheduler.Default);
-      }
-    }
-
-    // Semaphores to limit the number of pending results, and the parallelism if it is lower
-    var bufferSem = new SemaphoreSlim(bufferLimit);
-    var parallelismSem = parallelism < bufferLimit
-                           ? new SemaphoreSlim(parallelism)
-                           : null;
-
-    // References held by the producer and the tasks, completes the channel and `done` when reaching zero
+    // References held by the producer and the calls, completes the channel and `done` when reaching zero
     var nbRef = 1;
     var done  = new TaskCompletionSource<ValueTuple>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -277,47 +109,54 @@ internal static class ParallelSelectInternal
     }
 
     // Calls func on the thread pool, so that its synchronous part does not block the producer
-    async Task Call(TInput x)
+    async Task<TOutput> Call(TInput x)
     {
-      // Task.Yield is cheaper, but continues on the current context, that may not be the thread pool
-      if (IsThreadPoolContext())
-      {
-        await Task.Yield();
-      }
-      else
-      {
-        await YieldToThreadPool();
-      }
-
       try
       {
-        if (iterationToken.IsCancellationRequested)
+        // Task.Yield is cheaper, but continues on the current context, that may not be the thread pool
+        if (IsThreadPoolContext())
         {
-          return;
+          await Task.Yield();
         }
+        else
+        {
+          await YieldToThreadPool();
+        }
+
+        // Do not start func once the enumeration has ended
+        funcToken.ThrowIfCancellationRequested();
 
         TOutput res;
         try
         {
-          // Also cancelled upon errors, as the next results would be discarded
           res = await func(x,
-                           iterationToken)
+                           funcToken)
                   .ConfigureAwait(false);
         }
         catch (Exception e)
         {
-          // Forward the error and stop the iteration
-          Fail(e);
+          if (!unordered)
+          {
+            errorCts.Cancel();
+            throw;
+          }
+
+          // Written before cancelling the other calls, so that their cancellation is reported after this error
+          channel.Writer.TryWrite(new ValueTask<TOutput>(Task.FromException<TOutput>(e)));
           errorCts.Cancel();
-          return;
+          return default!;
         }
         finally
         {
           parallelismSem?.Release();
         }
 
-        // Fails silently if the channel has already been completed by an error
-        channel.Writer.TryWrite(res);
+        if (unordered)
+        {
+          channel.Writer.TryWrite(new ValueTask<TOutput>(res));
+        }
+
+        return res;
       }
       finally
       {
@@ -345,13 +184,18 @@ internal static class ParallelSelectInternal
           // to avoid counter going to zero before being incremented
           Interlocked.Increment(ref nbRef);
 
-          _ = Call(x);
+          var task = Call(x);
+
+          if (!unordered)
+          {
+            channel.Writer.TryWrite(new ValueTask<TOutput>(task));
+          }
         }
       }
       catch (Exception e)
       {
-        // Forward the error, unless a task has already completed the channel with its own error
-        Fail(e);
+        // Reported after the results already written
+        channel.Writer.TryWrite(new ValueTask<TOutput>(Task.FromException<TOutput>(e)));
       }
       finally
       {
@@ -364,9 +208,12 @@ internal static class ParallelSelectInternal
 
     try
     {
-      await foreach (var res in channel.Reader.ToAsyncEnumerable(globalToken))
+      await foreach (var item in channel.Reader.ToAsyncEnumerable(globalToken))
       {
+        var res = await item.ConfigureAwait(false);
+
         bufferSem.Release();
+
         yield return res;
       }
     }
@@ -381,6 +228,16 @@ internal static class ParallelSelectInternal
       {
         // Wait for the producer and all the tasks it has started
         await done.Task.ConfigureAwait(false);
+
+        // Observe the remaining errors: only the first one is reported to the consumer
+        while (channel.Reader.TryRead(out var item))
+        {
+          if (!item.IsCompletedSuccessfully)
+          {
+            _ = item.AsTask()
+                    .Exception;
+          }
+        }
       }
     }
   }
