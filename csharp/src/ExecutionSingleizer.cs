@@ -108,7 +108,9 @@ public class ExecutionSingleizer<T> : IDisposable
       }
       else
       {
-        // Record current thread as waiting for the task
+        // Record current thread as waiting for the task of the handle that won,
+        // which is the one decremented once the result is available.
+        currentHandle = previousHandle;
         Interlocked.Increment(ref currentHandle.Waiters);
 
         // The handle has been replaced by another thread, so we can just wait for the task
@@ -126,7 +128,6 @@ public class ExecutionSingleizer<T> : IDisposable
         }
 
         newHandle.Dispose();
-        currentHandle = previousHandle;
       }
     }
     else

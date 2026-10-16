@@ -290,6 +290,62 @@ public class ExecutionSingleizerTest
                 Is.EqualTo(3));
   }
 
+  [Test]
+  [AbortAfter(60000)]
+  public async Task ConcurrentCallsOnExpiredHandleKeepRefreshing()
+  {
+    var ttl    = TimeSpan.FromMilliseconds(20);
+    var reads  = 0;
+    var single = new ExecutionSingleizer<int>(ttl);
+
+    async Task<int> Read(CancellationToken ct)
+    {
+      var n = Interlocked.Increment(ref reads);
+      await Task.Delay(2,
+                       ct)
+                .ConfigureAwait(false);
+      return n;
+    }
+
+    await single.Call(Read)
+                .ConfigureAwait(false);
+
+    for (var it = 0; it < 200; it++)
+    {
+      await Task.Delay(ttl + TimeSpan.FromMilliseconds(5))
+                .ConfigureAwait(false);
+
+      // Two callers race to replace the expired handle
+      using var go = new Barrier(2);
+      var t1 = Task.Run(() =>
+                        {
+                          go.SignalAndWait();
+                          return single.Call(Read);
+                        });
+      var t2 = Task.Run(() =>
+                        {
+                          go.SignalAndWait();
+                          return single.Call(Read);
+                        });
+      await Task.WhenAll(t1,
+                         t2)
+                .ConfigureAwait(false);
+
+      var before = reads;
+      await Task.Delay(ttl + TimeSpan.FromMilliseconds(5))
+                .ConfigureAwait(false);
+
+      // The result has expired and there is a single caller: func must be called again
+      await single.Call(Read)
+                  .ConfigureAwait(false);
+      Assert.That(reads,
+                  Is.GreaterThan(before),
+                  $"No refresh after iteration {it}");
+    }
+
+    single.Dispose();
+  }
+
   private async Task<int> Set(int               i,
                               int               delay,
                               CancellationToken cancellationToken)
