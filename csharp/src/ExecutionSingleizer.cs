@@ -44,9 +44,16 @@ public class ExecutionSingleizer<T> : IDisposable
   public ExecutionSingleizer(TimeSpan timeValidity = default)
     => tickValidity_ = (long)Math.Ceiling(Stopwatch.Frequency * timeValidity.TotalSeconds);
 
-  /// <inheritdoc />
+  /// <summary>
+  ///   Cancel the execution in flight, if any.
+  ///   Callers waiting on it receive either its result, if func completes anyway, or a cancellation.
+  /// </summary>
+  /// <remarks>
+  ///   The current handle is not disposed, as callers may still be using it.
+  ///   Its task and cancellation token source hold no resource that the GC cannot reclaim.
+  /// </remarks>
   public void Dispose()
-    => handle_.Dispose();
+    => handle_.CancellationTokenSource.Cancel();
 
   /// <summary>
   ///   Call the asynchronous function func.
