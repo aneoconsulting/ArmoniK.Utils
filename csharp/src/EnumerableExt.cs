@@ -162,7 +162,7 @@ public static class EnumerableExt
       throw new ArgumentOutOfRangeException(nameof(size));
     }
 
-    var delay = Rechunker.ValidateMaxDelay(maxDelay);
+    var delay = Chunk.ValidateMaxDelay(maxDelay);
 
     if (source is null)
     {
@@ -238,19 +238,19 @@ public static class EnumerableExt
       throw new ArgumentOutOfRangeException(nameof(chunkMaxSize));
     }
 
-    var delay = Rechunker.ValidateMaxDelay(maxDelay);
+    var delay = Chunk.ValidateMaxDelay(maxDelay);
 
     if (source is null)
     {
       return AsyncEnumerable.Empty<ReadOnlyMemory<T>>();
     }
 
-    return Rechunker.IteratorAsync<ReadOnlyMemory<T>, T, ReadOnlyMemory<T>, Rechunker.MemoryAdapter<T>>(source,
-                                                                                                        default,
-                                                                                                        chunkMinSize,
-                                                                                                        chunkMaxSize,
-                                                                                                        delay,
-                                                                                                        flusher);
+    return Chunk.RechunkIteratorAsync<ReadOnlyMemory<T>, T, ReadOnlyMemory<T>, Chunk.MemoryAdapter<T>>(source,
+                                                                                                       default,
+                                                                                                       chunkMinSize,
+                                                                                                       chunkMaxSize,
+                                                                                                       delay,
+                                                                                                       flusher);
   }
 
   /// <summary>
