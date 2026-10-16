@@ -76,9 +76,16 @@ internal static class Rechunker
         // A hooked fetch must be awaited through the trigger.
         if (trigger is not null && (trigger.IsHooked || (trigger.IsArmed && !next.IsCompleted)))
         {
-          var due = !await trigger.WaitAsync(next)
-                                  .ConfigureAwait(false);
-          if (due)
+          trigger.Hook(next);
+          while (!trigger.NextCompleted && !trigger.IsDue)
+          {
+            trigger.Watch();
+            await trigger.WaitAsync()
+                         .ConfigureAwait(false);
+          }
+
+          // Checked first, so that available data wins
+          if (!trigger.NextCompleted)
           {
             trigger.Disarm();
             yield return adapter.FromMemory(chunker.Flush());
@@ -154,8 +161,11 @@ internal static class Rechunker
               })
           {
             trigger.Disarm();
-            await trigger.WaitAsync(next)
-                         .ConfigureAwait(false);
+            while (!trigger.NextCompleted)
+            {
+              await trigger.WaitAsync()
+                           .ConfigureAwait(false);
+            }
           }
 
           await next.ConfigureAwait(false);
@@ -364,42 +374,31 @@ internal static class Rechunker
   // Fires when the deadline of the buffered data expires, or when the flusher is triggered.
   // Armed while data is buffered: a flush requested while not armed is ignored.
   //
-  // WaitAsync waits for the source or the trigger without allocating: a continuation is registered on the fetch
-  // ("hooked"), and both complete the same IValueTaskSource. As a fetch accepts only one continuation,
-  // a hooked fetch must be awaited through WaitAsync until it completes, even if the trigger fired first.
-  private sealed class FlushTrigger : IValueTaskSource<bool>, IDisposable
+  // The completion of the fetch, the deadline and the flusher only signal the enumeration, which then checks the
+  // state again: a late or spurious signal is harmless. The fetch is "hooked" with a continuation to signal its
+  // completion. As a fetch accepts only one continuation, a hooked fetch must be awaited through the trigger.
+  private sealed class FlushTrigger : IValueTaskSource, IDisposable
   {
-    // States of the fetch
-    private const int NotHooked  = 0;
-    private const int Hooked     = 1;
-    private const int Completing = 2;
-    private const int Completed  = 3;
+    // States of the signal, which has a single waiter
+    private const int Idle     = 0;
+    private const int Waiting  = 1;
+    private const int Signaled = 2;
 
-    // waiting_ is NotWaiting, WaitingForNext, or the period of the current wait if the trigger can complete it.
-    // Periods are 64 bits so that a stale signal never matches a later period.
-    private const long NotWaiting     = 0;
-    private const long WaitingForNext = -1;
+    private static readonly WaitCallback SignalCallback = static state => ((FlushTrigger)state!).Signal();
 
     private readonly int           delayMs_; // Timeout.Infinite if there is no deadline
     private readonly ChunkFlusher? flusher_;
     private readonly Action        onNextCompleted_;
 
-    private ManualResetValueTaskSourceCore<bool> core_; // Result: whether the fetch completed
-
-    private long                          firedPeriod_; // Last period whose trigger fired
-    private CancellationTokenRegistration flushRegistration_;
-    private CancellationToken             flushToken_;
-    private int                           nextState_;
-    private long                          period_; // Current armed period, > 0
-    private int                           start_;
-    private bool                          started_;       // Whether the timer and the flusher are watched
-    private int                           timerDeadline_; // Environment.TickCount
-    private long                          timerPeriod_;   // 0 if stopped
-
-    // Reused across periods. The deadline is published before the period, so that the callback reading a period
-    // sees its deadline or a later one.
-    private Timer? timer_;
-    private long   waiting_;
+    private ManualResetValueTaskSourceCore<bool> core_;
+    private int                                  deadline_; // Environment.TickCount, read by the timer
+    private CancellationTokenRegistration        flushRegistration_;
+    private CancellationToken                    flushToken_;
+    private int                                  nextCompleted_;
+    private int                                  start_;
+    private bool                                 started_; // Whether the timer and the flusher are watched
+    private int                                  state_;
+    private Timer?                               timer_; // Reused across periods
 
     public FlushTrigger(TimeSpan      maxDelay,
                         ChunkFlusher? flusher)
@@ -407,14 +406,20 @@ internal static class Rechunker
       delayMs_ = maxDelay == Timeout.InfiniteTimeSpan
                    ? Timeout.Infinite
                    : (int)Math.Ceiling(maxDelay.TotalMilliseconds);
-      flusher_         = flusher;
-      onNextCompleted_ = OnNextCompleted;
+      flusher_ = flusher;
+      onNextCompleted_ = () =>
+                         {
+                           Volatile.Write(ref nextCompleted_,
+                                          1);
+                           Signal();
+                         };
     }
 
-    public bool IsArmed { get; private set; }
+    public bool IsArmed  { get; private set; }
+    public bool IsHooked { get; private set; }
 
-    public bool IsHooked
-      => nextState_ != NotHooked;
+    public bool NextCompleted
+      => Volatile.Read(ref nextCompleted_) != 0;
 
     public bool IsDue
       => IsArmed && (flushToken_.IsCancellationRequested || (delayMs_ != Timeout.Infinite && Remaining <= 0));
@@ -428,8 +433,12 @@ internal static class Rechunker
       timer_?.Dispose();
     }
 
-    public bool GetResult(short token)
-      => core_.GetResult(token);
+    void IValueTaskSource.GetResult(short token)
+    {
+      core_.GetResult(token);
+      Interlocked.Exchange(ref state_,
+                           Idle);
+    }
 
     public ValueTaskSourceStatus GetStatus(short token)
       => core_.GetStatus(token);
@@ -449,16 +458,10 @@ internal static class Rechunker
       IsArmed     = true;
       start_      = start;
       flushToken_ = flusher_?.Token ?? default;
-      period_++;
     }
 
     public void Disarm()
     {
-      if (!IsArmed)
-      {
-        return;
-      }
-
       IsArmed     = false;
       flushToken_ = default;
       if (!started_)
@@ -466,77 +469,47 @@ internal static class Rechunker
         return;
       }
 
-      flushRegistration_.Dispose();
       started_ = false;
-      if (timer_ is not null)
+      flushRegistration_.Dispose();
+      timer_?.Change(Timeout.Infinite,
+                     Timeout.Infinite);
+    }
+
+    // Registers a continuation on next, unless already done
+    public void Hook(ValueTask<bool> next)
+    {
+      if (IsHooked)
       {
-        Volatile.Write(ref timerPeriod_,
-                       0);
-        timer_.Change(Timeout.Infinite,
-                      Timeout.Infinite);
+        return;
       }
+
+      IsHooked = true;
+      Volatile.Write(ref nextCompleted_,
+                     0);
+      next.ConfigureAwait(false)
+          .GetAwaiter()
+          .UnsafeOnCompleted(onNextCompleted_);
     }
 
     // Must be called once the completed fetch has been consumed
     public void Unhook()
-      => nextState_ = NotHooked;
+      => IsHooked = false;
 
-    // Returns true if next completed, false if the trigger fired first (only possible if armed)
-    public ValueTask<bool> WaitAsync(ValueTask<bool> next)
+    // Watches the deadline and the flusher while armed
+    public void Watch()
     {
-      core_.Reset();
-      var wait = IsArmed
-                   ? period_
-                   : WaitingForNext;
-      Interlocked.Exchange(ref waiting_,
-                           wait);
-
-      if (nextState_ == NotHooked)
+      if (!IsArmed || started_)
       {
-        nextState_ = Hooked;
-        next.ConfigureAwait(false)
-            .GetAwaiter()
-            .UnsafeOnCompleted(onNextCompleted_);
-      }
-      else if (Volatile.Read(ref nextState_) != Hooked)
-      {
-        // Completed before this wait: its callback may have missed it
-        var spinner = new SpinWait();
-        while (Volatile.Read(ref nextState_) != Completed)
-        {
-          spinner.SpinOnce();
-        }
-
-        TryComplete(wait,
-                    true);
+        return;
       }
 
-      if (IsArmed)
-      {
-        // Checked after the fetch, so that available data wins
-        if (IsDue || Volatile.Read(ref firedPeriod_) == period_)
-        {
-          TryComplete(wait,
-                      false);
-        }
-        else if (!started_)
-        {
-          Start();
-        }
-      }
-
-      return new ValueTask<bool>(this,
-                                 core_.Version);
-    }
-
-    private void Start()
-    {
       started_ = true;
       if (flushToken_.CanBeCanceled)
       {
-        flushRegistration_ = flushToken_.Register(PeriodSignal.OnCancel,
-                                                  new PeriodSignal(this,
-                                                                   period_));
+        // Forwarded to the thread pool, so that the enumeration never continues on the thread calling Flush
+        flushRegistration_ = flushToken_.Register(static state => ThreadPool.UnsafeQueueUserWorkItem(SignalCallback,
+                                                                                                     state),
+                                                  this);
       }
 
       if (delayMs_ != Timeout.Infinite)
@@ -553,29 +526,48 @@ internal static class Rechunker
           }
         }
 
-        Volatile.Write(ref timerDeadline_,
+        Volatile.Write(ref deadline_,
                        unchecked(start_ + delayMs_));
-        Volatile.Write(ref timerPeriod_,
-                       period_);
         timer_.Change(Math.Max(Remaining,
                                0),
                       Timeout.Infinite);
       }
     }
 
-    // Runs on the thread pool. May be stale: only fires if the deadline of the period read is reached.
-    private void OnTimer()
+    // Completes once signaled since the previous wait
+    public ValueTask WaitAsync()
     {
-      var period = Volatile.Read(ref timerPeriod_);
-      if (period == 0)
+      core_.Reset();
+      if (Interlocked.CompareExchange(ref state_,
+                                      Waiting,
+                                      Idle) == Idle)
       {
-        return;
+        return new ValueTask(this,
+                             core_.Version);
       }
 
-      var remaining = unchecked(Volatile.Read(ref timerDeadline_) - Environment.TickCount);
+      // Already signaled
+      Interlocked.Exchange(ref state_,
+                           Idle);
+      return default;
+    }
+
+    private void Signal()
+    {
+      if (Interlocked.Exchange(ref state_,
+                               Signaled) == Waiting)
+      {
+        core_.SetResult(true);
+      }
+    }
+
+    // May be late: re-armed if the deadline is not reached yet
+    private void OnTimer()
+    {
+      var remaining = unchecked(Volatile.Read(ref deadline_) - Environment.TickCount);
       if (remaining <= 0)
       {
-        OnTrigger(period);
+        Signal();
         return;
       }
 
@@ -587,77 +579,6 @@ internal static class Rechunker
       catch (ObjectDisposedException)
       {
         // The enumeration is over
-      }
-    }
-
-    // Nothing must be done after Completed: the fetch can then be unhooked
-    private void OnNextCompleted()
-    {
-      Volatile.Write(ref nextState_,
-                     Completing);
-      var wait = Interlocked.Exchange(ref waiting_,
-                                      NotWaiting);
-      Volatile.Write(ref nextState_,
-                     Completed);
-
-      if (wait != NotWaiting)
-      {
-        core_.SetResult(true);
-      }
-    }
-
-    private void OnTrigger(long period)
-    {
-      // Monotonic, in case a stale signal arrives late
-      var fired = Volatile.Read(ref firedPeriod_);
-      while (fired < period)
-      {
-        var previous = Interlocked.CompareExchange(ref firedPeriod_,
-                                                   period,
-                                                   fired);
-        if (previous == fired)
-        {
-          break;
-        }
-
-        fired = previous;
-      }
-
-      TryComplete(period,
-                  false);
-    }
-
-    private void TryComplete(long wait,
-                             bool nextCompleted)
-    {
-      if (Interlocked.CompareExchange(ref waiting_,
-                                      NotWaiting,
-                                      wait) == wait)
-      {
-        core_.SetResult(nextCompleted);
-      }
-    }
-
-    // Forwarded to the thread pool, so that the enumeration never continues on the thread calling Flush
-    private sealed class PeriodSignal
-    {
-      private static readonly WaitCallback Fire = static state =>
-                                                  {
-                                                    var signal = (PeriodSignal)state!;
-                                                    signal.owner_.OnTrigger(signal.period_);
-                                                  };
-
-      public static readonly Action<object?> OnCancel = static state => ThreadPool.UnsafeQueueUserWorkItem(Fire,
-                                                                                                           state);
-
-      private readonly FlushTrigger owner_;
-      private readonly long         period_;
-
-      public PeriodSignal(FlushTrigger owner,
-                          long         period)
-      {
-        owner_  = owner;
-        period_ = period;
       }
     }
   }
