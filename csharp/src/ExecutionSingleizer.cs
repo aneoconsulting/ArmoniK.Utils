@@ -37,7 +37,10 @@ public class ExecutionSingleizer<T> : IDisposable
   /// <summary>
   ///   Allow initialization of <see cref="ExecutionSingleizer{T}" />
   /// </summary>
-  /// <param name="timeValidity">Results from the execution will be in cache during timeValidity</param>
+  /// <param name="timeValidity">
+  ///   Outcome of the execution, result or exception, will be in cache during timeValidity.
+  ///   A cancelled execution is not cached.
+  /// </param>
   public ExecutionSingleizer(TimeSpan timeValidity = default)
     => tickValidity_ = (long)Math.Ceiling(Stopwatch.Frequency * timeValidity.TotalSeconds);
 
@@ -151,7 +154,9 @@ public class ExecutionSingleizer<T> : IDisposable
     {
       // Reset the validity of the result once the result is available.
       // This is done by all threads in order to avoid race condition with the Waiters decrement.
-      if (!currentHandle.CancellationTokenSource.IsCancellationRequested)
+      // A thread leaving on its own cancellation before the task completes must not validate anything,
+      // and a cancelled task is not an outcome of func that can be served to later callers.
+      if (task.IsCompleted && !task.IsCanceled && !currentHandle.CancellationTokenSource.IsCancellationRequested)
       {
         currentHandle.ValidUntil = Stopwatch.GetTimestamp() + tickValidity_;
       }
