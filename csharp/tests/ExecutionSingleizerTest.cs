@@ -346,6 +346,72 @@ public class ExecutionSingleizerTest
     single.Dispose();
   }
 
+  [Test]
+  [AbortAfter(10000)]
+  public async Task CancellationIsNotCached()
+  {
+    var single = new ExecutionSingleizer<int>(TimeSpan.FromSeconds(10));
+
+    using var cts     = new CancellationTokenSource();
+    var       started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var t1 = single.Call(async ct =>
+                         {
+                           started.SetResult(true);
+                           await Task.Delay(1000,
+                                            ct)
+                                     .ConfigureAwait(false);
+                           return 1;
+                         },
+                         cts.Token);
+    // Cancel while func is running
+    await started.Task.ConfigureAwait(false);
+    cts.Cancel();
+    Assert.That(() => t1,
+                Throws.InstanceOf<OperationCanceledException>());
+
+    // The previous call was cancelled by its only caller: its outcome must not be served
+    var i = await single.Call(ct => Set(2,
+                                        0,
+                                        ct))
+                        .ConfigureAwait(false);
+    Assert.That(i,
+                Is.EqualTo(2));
+    Assert.That(val_,
+                Is.EqualTo(2));
+
+    single.Dispose();
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task FailureIsCached()
+  {
+    var single = new ExecutionSingleizer<int>(TimeSpan.FromMilliseconds(100));
+
+    Assert.That(() => single.Call(_ => Task.FromException<int>(new ApplicationException())),
+                Throws.InstanceOf<ApplicationException>());
+
+    // The failure is kept for the validity period
+    Assert.That(() => single.Call(ct => Set(1,
+                                            0,
+                                            ct)),
+                Throws.InstanceOf<ApplicationException>());
+    Assert.That(val_,
+                Is.EqualTo(0));
+
+    await Task.Delay(150)
+              .ConfigureAwait(false);
+
+    var i = await single.Call(ct => Set(2,
+                                        0,
+                                        ct))
+                        .ConfigureAwait(false);
+    Assert.That(i,
+                Is.EqualTo(2));
+
+    single.Dispose();
+  }
+
   private async Task<int> Set(int               i,
                               int               delay,
                               CancellationToken cancellationToken)
