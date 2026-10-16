@@ -412,6 +412,65 @@ public class ExecutionSingleizerTest
     single.Dispose();
   }
 
+  [Test]
+  [AbortAfter(10000)]
+  public async Task DisposeWhileRunning()
+  {
+    var single  = new ExecutionSingleizer<int>(TimeSpan.FromSeconds(1));
+    var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var gate    = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var task = single.Call(async _ =>
+                           {
+                             started.SetResult(true);
+                             await gate.Task.ConfigureAwait(false);
+                             return 1;
+                           });
+
+    // Dispose while func is running
+    await started.Task.ConfigureAwait(false);
+    Assert.That(() => single.Dispose(),
+                Throws.Nothing);
+
+    gate.SetResult(true);
+
+    // func ignores the cancellation, so the caller still gets its result
+    Assert.That(await task.ConfigureAwait(false),
+                Is.EqualTo(1));
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task DisposeCancelsRunningCall()
+  {
+    var single  = new ExecutionSingleizer<int>(TimeSpan.FromSeconds(1));
+    var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    async Task<int> Run(CancellationToken ct)
+    {
+      started.TrySetResult(true);
+      await Task.Delay(1000,
+                       ct)
+                .ConfigureAwait(false);
+      val_ = 1;
+      return 1;
+    }
+
+    var t1 = single.Call(Run);
+    var t2 = single.Call(Run);
+
+    // Dispose while func is running
+    await started.Task.ConfigureAwait(false);
+    Assert.That(() => single.Dispose(),
+                Throws.Nothing);
+
+    Assert.That(() => t1,
+                Throws.InstanceOf<OperationCanceledException>());
+    Assert.That(() => t2,
+                Throws.InstanceOf<OperationCanceledException>());
+    Assert.That(val_,
+                Is.EqualTo(0));
+  }
+
   private async Task<int> Set(int               i,
                               int               delay,
                               CancellationToken cancellationToken)
