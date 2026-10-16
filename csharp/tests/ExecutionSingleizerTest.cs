@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -474,6 +475,38 @@ public class ExecutionSingleizerTest
                 Throws.InstanceOf<OperationCanceledException>());
     Assert.That(val_,
                 Is.EqualTo(0));
+  }
+
+  [Test]
+  [AbortAfter(30000)]
+  public void ContinuousCallsKeepRefreshing()
+  {
+    var ttl    = TimeSpan.FromMilliseconds(10);
+    var reads  = 0;
+    var single = new ExecutionSingleizer<int>(ttl);
+    var sw     = Stopwatch.StartNew();
+
+    // More threads than cores, so that callers are preempted in the middle of a call and overlap continuously
+    var threads = Enumerable.Range(0,
+                                   4 * Environment.ProcessorCount)
+                            .Select(_ => new Thread(() =>
+                                                    {
+                                                      while (sw.ElapsedMilliseconds < 1000)
+                                                      {
+                                                        single.Call(_ => Task.FromResult(Interlocked.Increment(ref reads)))
+                                                              .GetAwaiter()
+                                                              .GetResult();
+                                                      }
+                                                    }))
+                            .ToList();
+    threads.ForEach(t => t.Start());
+    threads.ForEach(t => t.Join());
+
+    // About 100 refreshes are expected in 1 s with a validity of 10 ms
+    Assert.That(reads,
+                Is.GreaterThan(20));
+
+    single.Dispose();
   }
 
   private async Task<int> Set(int               i,
