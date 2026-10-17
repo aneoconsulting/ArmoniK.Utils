@@ -605,6 +605,70 @@ public class ExecutionSingleizerTest
     single.Dispose();
   }
 
+  [Test]
+  [AbortAfter(30000)]
+  public void CallersThatDoNotCancelAreNotCancelled()
+  {
+    var single           = new ExecutionSingleizer<int>();
+    var sw               = Stopwatch.StartNew();
+    var unaskedCancelled = 0;
+
+    async Task<int> Run(CancellationToken ct)
+    {
+      await Task.Yield();
+      ct.ThrowIfCancellationRequested();
+      return 1;
+    }
+
+    // Half of the threads cancel their calls right away, the others never cancel anything.
+    // A caller that does not cancel must never receive a cancellation,
+    // even when it joins an execution whose last caller is leaving.
+    var threads = Enumerable.Range(0,
+                                   4 * Environment.ProcessorCount)
+                            .Select(id => new Thread(() =>
+                                                     {
+                                                       while (sw.ElapsedMilliseconds < 2000)
+                                                       {
+                                                         if (id % 2 == 0)
+                                                         {
+                                                           using var cts = new CancellationTokenSource();
+                                                           var task = single.Call(Run,
+                                                                                  cts.Token);
+                                                           cts.Cancel();
+                                                           try
+                                                           {
+                                                             task.GetAwaiter()
+                                                                 .GetResult();
+                                                           }
+                                                           catch (OperationCanceledException)
+                                                           {
+                                                           }
+                                                         }
+                                                         else
+                                                         {
+                                                           try
+                                                           {
+                                                             single.Call(Run)
+                                                                   .GetAwaiter()
+                                                                   .GetResult();
+                                                           }
+                                                           catch (OperationCanceledException)
+                                                           {
+                                                             Interlocked.Increment(ref unaskedCancelled);
+                                                           }
+                                                         }
+                                                       }
+                                                     }))
+                            .ToList();
+    threads.ForEach(t => t.Start());
+    threads.ForEach(t => t.Join());
+
+    Assert.That(unaskedCancelled,
+                Is.Zero);
+
+    single.Dispose();
+  }
+
   private async Task<int> Set(int               i,
                               int               delay,
                               CancellationToken cancellationToken)
