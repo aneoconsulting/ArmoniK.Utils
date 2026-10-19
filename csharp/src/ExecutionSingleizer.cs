@@ -75,12 +75,10 @@ public class ExecutionSingleizer<T> : IDisposable
       var handle = handle_;
       var now    = Stopwatch.GetTimestamp();
 
-      if (!CanRefresh(handle,
-                      now))
+      if (!handle.CanRefresh(now))
       {
         // The task is running or its result is still valid: just wait for it.
-        if (TryJoin(handle,
-                    now))
+        if (handle.TryJoin(now))
         {
           currentHandle = handle;
           break;
@@ -117,8 +115,7 @@ public class ExecutionSingleizer<T> : IDisposable
       }
 
       // The handle has been replaced by another thread: wait for the task of the handle that won, if it is still usable.
-      var joined = TryJoin(previousHandle,
-                           Stopwatch.GetTimestamp());
+      var joined = previousHandle.TryJoin(Stopwatch.GetTimestamp());
 
       // The handle created by the current thread can be destroyed as it is not used by anything.
       // Before destroying the task, it must be complete (ran, faulted or cancelled).
@@ -165,57 +162,6 @@ public class ExecutionSingleizer<T> : IDisposable
         // cancelling is a no op, therefore, we do not need to check why we went here.
         currentHandle.CancellationTokenSource.Cancel();
       }
-    }
-  }
-
-  /// <summary>
-  ///   Check whether a new execution must replace the one of the handle:
-  ///   its data has expired, and its task is complete (success or failed),
-  ///   or will be cancelled because all its callers have left or because of <see cref="Dispose" />.
-  ///   The validity is set before the task completes, so it is always up to date once the task is complete.
-  ///   Callers still waiting on a complete task do not prevent the refresh.
-  ///   The state of the task is read before the validity, so that a complete task is seen with its validity.
-  /// </summary>
-  /// <param name="handle">Handle to check</param>
-  /// <param name="now">Current timestamp</param>
-  /// <returns>Whether a new execution must replace the one of the handle</returns>
-  private static bool CanRefresh(Handle handle,
-                                 long   now)
-    => (handle.InnerTask.IsCompleted || Volatile.Read(ref handle.Waiters) == 0 || handle.CancellationTokenSource.IsCancellationRequested) && now > handle.ValidUntil;
-
-  /// <summary>
-  ///   Record the current thread as waiting for the task of the handle,
-  ///   unless all its callers have left and its data has expired.
-  ///   In that case, the last caller that left cancels the shared token,
-  ///   and joining would serve that cancellation to a caller that did not ask for it.
-  ///   Checking and incrementing <see cref="Handle.Waiters" /> atomically prevents joining
-  ///   between the decrement to 0 and the cancellation.
-  ///   A handle with no caller left can still be joined while its data is valid:
-  ///   its validity is only set once func has completed, so a late cancellation has no effect on it.
-  /// </summary>
-  /// <param name="handle">Handle to join</param>
-  /// <param name="now">Current timestamp</param>
-  /// <returns>Whether the current thread has been recorded as waiting for the task of the handle</returns>
-  private static bool TryJoin(Handle handle,
-                              long   now)
-  {
-    var waiters = Volatile.Read(ref handle.Waiters);
-    while (true)
-    {
-      if (waiters == 0 && now > handle.ValidUntil)
-      {
-        return false;
-      }
-
-      var previous = Interlocked.CompareExchange(ref handle.Waiters,
-                                                 waiters + 1,
-                                                 waiters);
-      if (previous == waiters)
-      {
-        return true;
-      }
-
-      waiters = previous;
     }
   }
 
@@ -294,6 +240,53 @@ public class ExecutionSingleizer<T> : IDisposable
     {
       CancellationTokenSource.Dispose();
       InnerTask.Dispose();
+    }
+
+    /// <summary>
+    ///   Check whether a new execution must replace the one of this handle:
+    ///   its data has expired, and its task is complete (success or failed),
+    ///   or will be cancelled because all its callers have left or because of <see cref="ExecutionSingleizer{T}.Dispose" />.
+    ///   The validity is set before the task completes, so it is always up to date once the task is complete.
+    ///   Callers still waiting on a complete task do not prevent the refresh.
+    ///   The state of the task is read before the validity, so that a complete task is seen with its validity.
+    /// </summary>
+    /// <param name="now">Current timestamp</param>
+    /// <returns>Whether a new execution must replace the one of this handle</returns>
+    public bool CanRefresh(long now)
+      => (InnerTask.IsCompleted || Volatile.Read(ref Waiters) == 0 || CancellationTokenSource.IsCancellationRequested) && now > ValidUntil;
+
+    /// <summary>
+    ///   Record the current thread as waiting for the task of this handle,
+    ///   unless all its callers have left and its data has expired.
+    ///   In that case, the last caller that left cancels the shared token,
+    ///   and joining would serve that cancellation to a caller that did not ask for it.
+    ///   Checking and incrementing <see cref="Waiters" /> atomically prevents joining
+    ///   between the decrement to 0 and the cancellation.
+    ///   A handle with no caller left can still be joined while its data is valid:
+    ///   its validity is only set once func has completed, so a late cancellation has no effect on it.
+    /// </summary>
+    /// <param name="now">Current timestamp</param>
+    /// <returns>Whether the current thread has been recorded as waiting for the task of this handle</returns>
+    public bool TryJoin(long now)
+    {
+      var waiters = Volatile.Read(ref Waiters);
+      while (true)
+      {
+        if (waiters == 0 && now > ValidUntil)
+        {
+          return false;
+        }
+
+        var previous = Interlocked.CompareExchange(ref Waiters,
+                                                   waiters + 1,
+                                                   waiters);
+        if (previous == waiters)
+        {
+          return true;
+        }
+
+        waiters = previous;
+      }
     }
 
     /// <summary>
