@@ -127,6 +127,7 @@ public class ExecutionSingleizer<T> : IDisposable
       }
       catch (TaskCanceledException)
       {
+        // Expected: the token is cancelled before the task starts, so func is never called and the task always ends cancelled.
       }
 
       newHandle.Dispose();
