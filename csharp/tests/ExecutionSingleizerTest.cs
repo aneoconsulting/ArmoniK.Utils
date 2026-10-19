@@ -154,7 +154,9 @@ public class ExecutionSingleizerTest
   [AbortAfter(100000)]
   public void ManyThreadedConcurrentExecution()
   {
-    var n = 10000000;
+    // Stresses thread safety: no crash, deadlock or unexpected cancellation under heavy multi-threaded contention.
+    // With a validity of 0, almost every call starts a new execution, so the number of calls is kept moderate.
+    var n = 1000000;
 
     var tasks = Enumerable.Range(0,
                                  n)
@@ -170,6 +172,100 @@ public class ExecutionSingleizerTest
     Assert.That(results,
                 Is.All.InRange(0,
                                n));
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task ManyThreadedCallsShareRunningExecution()
+  {
+    var executions = 0;
+    var started    = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var gate       = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    async Task<int> Run(CancellationToken ct)
+    {
+      Interlocked.Increment(ref executions);
+      started.TrySetResult(true);
+      await gate.Task.ConfigureAwait(false);
+      return 42;
+    }
+
+    var first = single_!.Call(Run);
+    await started.Task.ConfigureAwait(false);
+
+    // Many callers from many threads while the execution is running: they must all join it
+    var others = Enumerable.Range(0,
+                                  100000)
+                           .AsParallel()
+                           .WithExecutionMode(ParallelExecutionMode.ForceParallelism)
+                           .Select(_ => single_!.Call(Run))
+                           .ToList();
+
+    gate.SetResult(true);
+    others.Add(first);
+    var results = await Task.WhenAll(others)
+                            .ConfigureAwait(false);
+
+    Assert.That(executions,
+                Is.EqualTo(1));
+    Assert.That(results,
+                Is.All.EqualTo(42));
+  }
+
+  [Test]
+  [AbortAfter(30000)]
+  public void ContinuousThreadedCallsNeverOverlapExecutions()
+  {
+    var executions = 0;
+    var running    = 0;
+    var maxRunning = 0;
+    var sw         = Stopwatch.StartNew();
+
+    async Task<int> Run(CancellationToken ct)
+    {
+      Interlocked.Increment(ref executions);
+      var r = Interlocked.Increment(ref running);
+      int m;
+      while (r > (m = Volatile.Read(ref maxRunning)) && Interlocked.CompareExchange(ref maxRunning,
+                                                                                    r,
+                                                                                    m) != m)
+      {
+      }
+
+      try
+      {
+        await Task.Delay(1,
+                         ct)
+                  .ConfigureAwait(false);
+        return r;
+      }
+      finally
+      {
+        Interlocked.Decrement(ref running);
+      }
+    }
+
+    // Callers overlap continuously, and no caller cancels: executions must never run concurrently,
+    // and the result must still be refreshed as the validity is 0.
+    var threads = Enumerable.Range(0,
+                                   4 * Environment.ProcessorCount)
+                            .Select(_ => new Thread(() =>
+                                                    {
+                                                      while (sw.ElapsedMilliseconds < 1000)
+                                                      {
+                                                        single_!.Call(Run)
+                                                                .GetAwaiter()
+                                                                .GetResult();
+                                                      }
+                                                    }))
+                            .ToList();
+    threads.ForEach(t => t.Start());
+    threads.ForEach(t => t.Join());
+
+    Assert.That(maxRunning,
+                Is.EqualTo(1));
+    Assert.That(executions,
+                Is.GreaterThan(1));
   }
 
   [Test]
