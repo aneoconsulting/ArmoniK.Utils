@@ -37,13 +37,23 @@ public class ExecutionSingleizer<T> : IDisposable
   /// <summary>
   ///   Allow initialization of <see cref="ExecutionSingleizer{T}" />
   /// </summary>
-  /// <param name="timeValidity">Results from the execution will be in cache during timeValidity</param>
+  /// <param name="timeValidity">
+  ///   Outcome of the execution, result or exception, will be in cache during timeValidity.
+  ///   A cancelled execution is not cached.
+  /// </param>
   public ExecutionSingleizer(TimeSpan timeValidity = default)
     => tickValidity_ = (long)Math.Ceiling(Stopwatch.Frequency * timeValidity.TotalSeconds);
 
-  /// <inheritdoc />
+  /// <summary>
+  ///   Cancel the execution in flight, if any.
+  ///   Callers waiting on it receive either its result, if func completes anyway, or a cancellation.
+  /// </summary>
+  /// <remarks>
+  ///   The current handle is not disposed, as callers may still be using it.
+  ///   Its task and cancellation token source hold no resource that the GC cannot reclaim.
+  /// </remarks>
   public void Dispose()
-    => handle_.Dispose();
+    => handle_.CancellationTokenSource.Cancel();
 
   /// <summary>
   ///   Call the asynchronous function func.
@@ -58,82 +68,77 @@ public class ExecutionSingleizer<T> : IDisposable
   public async Task<T> Call(Func<CancellationToken, Task<T>> func,
                             CancellationToken                cancellationToken = default)
   {
-    // Read the handle_ reference to have a stable view of it
-    var currentHandle = handle_;
-
-    // If there is no waiters, the task is complete (success or failed), and no thread is currently running it.
-    // We therefore need to call func again if the data has expired.
-    if (currentHandle.Waiters == 0 && Stopwatch.GetTimestamp() > currentHandle.ValidUntil)
+    Handle currentHandle;
+    while (true)
     {
-      // Prepare new handle, with new cancellation token source and new task
-      var cts = new CancellationTokenSource();
-      var delayedTask = new Task<Task<T>>(() => cts.IsCancellationRequested
-                                                  ? Task.FromCanceled<T>(cts.Token)
-                                                  : func(cts.Token));
+      // Read the handle_ reference to have a stable view of it
+      var handle = handle_;
+      var now    = Stopwatch.GetTimestamp();
 
-      var newHandle = new Handle
-                      {
-                        CancellationTokenSource = cts,
-                        // Unwrap allows the handle to have a single level Task, instead of a Task<Task<...>>
-                        InnerTask = delayedTask.Unwrap(),
-                        // Current thread is implicitly waiting for the task
-                        Waiters = 1,
-                      };
+      if (!handle.CanRefresh(now))
+      {
+        // The task is running or its result is still valid: just wait for it.
+        if (handle.TryJoin(now))
+        {
+          currentHandle = handle;
+          break;
+        }
+
+        // The last caller of the handle has left in the meantime and is cancelling it: start over.
+        continue;
+      }
+
+      // Prepare new handle, with new cancellation token source and new task.
+      // The task is not started yet: func must not be called before the handle is published.
+      var newHandle = new Handle(func,
+                                 tickValidity_);
 
       // Try to store new handle replacing the previous one.
       // Only one thread will succeed here.
       var previousHandle = Interlocked.CompareExchange(ref handle_,
                                                        newHandle,
-                                                       currentHandle);
+                                                       handle);
 
       // Check if thread successfully replaced the handle.
       if (ReferenceEquals(previousHandle,
-                          currentHandle))
+                          handle))
       {
         // Current thread has won, the others will see this new handle.
         // We can now start the task, other threads will just wait on the result.
-        delayedTask.Start();
+        newHandle.Start();
         currentHandle = newHandle;
 
-        // The task might not have finished yet. If that is the case, let the GC do the job.
-        if (previousHandle.InnerTask.IsCompleted)
-        {
-          // Dispose of the underlying task here is fine:
-          // https://devblogs.microsoft.com/pfxteam/do-i-need-to-dispose-of-tasks/
-          previousHandle.InnerTask.Dispose();
-
-          // Dispose of the CancellationTokenSource should be fine,
-          // but we appear to have a race condition here so we skip it
-        }
+        // The previous handle is not disposed, as callers may still be waiting on it.
+        // Disposing tasks is not needed anyway:
+        // https://devblogs.microsoft.com/pfxteam/do-i-need-to-dispose-of-tasks/
+        break;
       }
-      else
+
+      // The handle has been replaced by another thread: wait for the task of the handle that won, if it is still usable.
+      var joined = previousHandle.TryJoin(Stopwatch.GetTimestamp());
+
+      // The handle created by the current thread can be destroyed as it is not used by anything.
+      // Before destroying the task, it must be complete (ran, faulted or cancelled).
+      newHandle.CancellationTokenSource.Cancel();
+      newHandle.Start();
+      try
       {
-        // Record current thread as waiting for the task
-        Interlocked.Increment(ref currentHandle.Waiters);
-
-        // The handle has been replaced by another thread, so we can just wait for the task
-        // in this new handle to get the result.
-        // The handle created by the current thread can be destroyed as it is not used by anything.
-        // Before destroying the task, it must be complete (ran, faulted or cancelled).
-        cts.Cancel();
-        delayedTask.Start();
-        try
-        {
-          await newHandle.InnerTask.ConfigureAwait(false);
-        }
-        catch (TaskCanceledException)
-        {
-        }
-
-        newHandle.Dispose();
-        currentHandle = previousHandle;
+        await newHandle.InnerTask.ConfigureAwait(false);
       }
-    }
-    else
-    {
-      // if the task is not complete, we can just wait its result.
-      // Record current thread as waiting for the task.
-      Interlocked.Increment(ref currentHandle.Waiters);
+      catch (TaskCanceledException)
+      {
+        // Expected: the token is cancelled before the task starts, so func is never called and the task always ends cancelled.
+      }
+
+      newHandle.Dispose();
+
+      if (joined)
+      {
+        currentHandle = previousHandle;
+        break;
+      }
+
+      // The handle that won was not usable anymore: start over.
     }
 
     var task = currentHandle.InnerTask;
@@ -148,13 +153,6 @@ public class ExecutionSingleizer<T> : IDisposable
     }
     finally
     {
-      // Reset the validity of the result once the result is available.
-      // This is done by all threads in order to avoid race condition with the Waiters decrement.
-      if (!currentHandle.CancellationTokenSource.IsCancellationRequested)
-      {
-        currentHandle.ValidUntil = Stopwatch.GetTimestamp() + tickValidity_;
-      }
-
       // Remove the current thread from the list of waiters.
       var i = Interlocked.Decrement(ref currentHandle.Waiters);
 
@@ -175,6 +173,12 @@ public class ExecutionSingleizer<T> : IDisposable
   /// </summary>
   private sealed class Handle : IDisposable
   {
+    /// <summary>
+    ///   Task calling func, created but not started, so that func is not called before the handle is published.
+    ///   It is null for the initial cancelled handle.
+    /// </summary>
+    private readonly Task<Task<T>>? delayedTask_;
+
     /// <summary>
     ///   Specify the timestamp until the data is valid
     /// </summary>
@@ -201,20 +205,137 @@ public class ExecutionSingleizer<T> : IDisposable
     }
 
     /// <summary>
+    ///   Construct an handle whose task calls func once started.
+    ///   The current thread is implicitly waiting for the task.
+    /// </summary>
+    /// <param name="func">Function to call</param>
+    /// <param name="tickValidity">Validity of the outcome, in Stopwatch ticks</param>
+    public Handle(Func<CancellationToken, Task<T>> func,
+                  long                             tickValidity)
+    {
+      CancellationTokenSource = new CancellationTokenSource();
+      Waiters                 = 1;
+
+      // If the handle is never published, its token is cancelled before the task is started, and func is not called.
+      delayedTask_ = new Task<Task<T>>(() => CancellationTokenSource.IsCancellationRequested
+                                               ? Task.FromCanceled<T>(CancellationTokenSource.Token)
+                                               : CallAndValidate(func,
+                                                                 tickValidity));
+
+      // Unwrap allows the handle to have a single level Task, instead of a Task<Task<...>>
+      InnerTask = delayedTask_.Unwrap();
+    }
+
+    /// <summary>
     ///   Shared cancellation token for all the threads waiting on the task.
     /// </summary>
-    public CancellationTokenSource CancellationTokenSource { get; init; }
+    public CancellationTokenSource CancellationTokenSource { get; }
 
     /// <summary>
     ///   Task that creates the result.
     /// </summary>
-    public Task<T> InnerTask { get; init; }
+    public Task<T> InnerTask { get; }
 
     /// <inheritdoc />
     public void Dispose()
     {
       CancellationTokenSource.Dispose();
       InnerTask.Dispose();
+    }
+
+    /// <summary>
+    ///   Check whether a new execution must replace the one of this handle:
+    ///   its data has expired, and its task is complete (success or failed),
+    ///   or will be cancelled because all its callers have left or because of <see cref="ExecutionSingleizer{T}.Dispose" />.
+    ///   The validity is set before the task completes, so it is always up to date once the task is complete.
+    ///   Callers still waiting on a complete task do not prevent the refresh.
+    ///   The state of the task is read before the validity, so that a complete task is seen with its validity.
+    /// </summary>
+    /// <param name="now">Current timestamp</param>
+    /// <returns>Whether a new execution must replace the one of this handle</returns>
+    public bool CanRefresh(long now)
+      => (InnerTask.IsCompleted || Volatile.Read(ref Waiters) == 0 || CancellationTokenSource.IsCancellationRequested) && now > ValidUntil;
+
+    /// <summary>
+    ///   Record the current thread as waiting for the task of this handle,
+    ///   unless all its callers have left and its data has expired.
+    ///   In that case, the last caller that left cancels the shared token,
+    ///   and joining would serve that cancellation to a caller that did not ask for it.
+    ///   Checking and incrementing <see cref="Waiters" /> atomically prevents joining
+    ///   between the decrement to 0 and the cancellation.
+    ///   A handle with no caller left can still be joined while its data is valid:
+    ///   its validity is only set once func has completed, so a late cancellation has no effect on it.
+    /// </summary>
+    /// <param name="now">Current timestamp</param>
+    /// <returns>Whether the current thread has been recorded as waiting for the task of this handle</returns>
+    public bool TryJoin(long now)
+    {
+      var waiters = Volatile.Read(ref Waiters);
+      while (true)
+      {
+        if (waiters == 0 && now > ValidUntil)
+        {
+          return false;
+        }
+
+        var previous = Interlocked.CompareExchange(ref Waiters,
+                                                   waiters + 1,
+                                                   waiters);
+        if (previous == waiters)
+        {
+          return true;
+        }
+
+        waiters = previous;
+      }
+    }
+
+    /// <summary>
+    ///   Start the task of the handle.
+    ///   Must be called exactly once on a handle constructed with func.
+    /// </summary>
+    public void Start()
+      => delayedTask_!.Start();
+
+    /// <summary>
+    ///   Call func, and set the validity of the handle once func has completed, but before the task of the handle completes.
+    ///   The validity period therefore starts once, when the outcome is available, and is not extended by later callers.
+    ///   A cancelled execution is not cached.
+    /// </summary>
+    /// <param name="func">Function to call</param>
+    /// <param name="tickValidity">Validity of the outcome, in Stopwatch ticks</param>
+    /// <returns>
+    ///   Result of func
+    /// </returns>
+    private async Task<T> CallAndValidate(Func<CancellationToken, Task<T>> func,
+                                          long                             tickValidity)
+    {
+      T result;
+      try
+      {
+        result = await func(CancellationTokenSource.Token)
+                   .ConfigureAwait(false);
+      }
+      catch (Exception e) when (e is not OperationCanceledException)
+      {
+        Validate(tickValidity);
+        throw;
+      }
+
+      Validate(tickValidity);
+      return result;
+    }
+
+    /// <summary>
+    ///   Set the validity of the outcome, unless the execution has been cancelled.
+    /// </summary>
+    /// <param name="tickValidity">Validity of the outcome, in Stopwatch ticks</param>
+    private void Validate(long tickValidity)
+    {
+      if (!CancellationTokenSource.IsCancellationRequested)
+      {
+        ValidUntil = Stopwatch.GetTimestamp() + tickValidity;
+      }
     }
   }
 }

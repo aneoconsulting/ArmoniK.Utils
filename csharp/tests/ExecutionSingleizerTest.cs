@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -153,7 +154,9 @@ public class ExecutionSingleizerTest
   [AbortAfter(100000)]
   public void ManyThreadedConcurrentExecution()
   {
-    var n = 10000000;
+    // Stresses thread safety: no crash, deadlock or unexpected cancellation under heavy multi-threaded contention.
+    // With a validity of 0, almost every call starts a new execution, so the number of calls is kept moderate.
+    var n = 1000000;
 
     var tasks = Enumerable.Range(0,
                                  n)
@@ -169,6 +172,100 @@ public class ExecutionSingleizerTest
     Assert.That(results,
                 Is.All.InRange(0,
                                n));
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task ManyThreadedCallsShareRunningExecution()
+  {
+    var executions = 0;
+    var started    = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var gate       = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    async Task<int> Run(CancellationToken ct)
+    {
+      Interlocked.Increment(ref executions);
+      started.TrySetResult(true);
+      await gate.Task.ConfigureAwait(false);
+      return 42;
+    }
+
+    var first = single_!.Call(Run);
+    await started.Task.ConfigureAwait(false);
+
+    // Many callers from many threads while the execution is running: they must all join it
+    var others = Enumerable.Range(0,
+                                  100000)
+                           .AsParallel()
+                           .WithExecutionMode(ParallelExecutionMode.ForceParallelism)
+                           .Select(_ => single_!.Call(Run))
+                           .ToList();
+
+    gate.SetResult(true);
+    others.Add(first);
+    var results = await Task.WhenAll(others)
+                            .ConfigureAwait(false);
+
+    Assert.That(executions,
+                Is.EqualTo(1));
+    Assert.That(results,
+                Is.All.EqualTo(42));
+  }
+
+  [Test]
+  [AbortAfter(30000)]
+  public void ContinuousThreadedCallsNeverOverlapExecutions()
+  {
+    var executions = 0;
+    var running    = 0;
+    var maxRunning = 0;
+    var sw         = Stopwatch.StartNew();
+
+    async Task<int> Run(CancellationToken ct)
+    {
+      Interlocked.Increment(ref executions);
+      var r = Interlocked.Increment(ref running);
+      int m;
+      while (r > (m = Volatile.Read(ref maxRunning)) && Interlocked.CompareExchange(ref maxRunning,
+                                                                                    r,
+                                                                                    m) != m)
+      {
+      }
+
+      try
+      {
+        await Task.Delay(1,
+                         ct)
+                  .ConfigureAwait(false);
+        return r;
+      }
+      finally
+      {
+        Interlocked.Decrement(ref running);
+      }
+    }
+
+    // Callers overlap continuously, and no caller cancels: executions must never run concurrently,
+    // and the result must still be refreshed as the validity is 0.
+    var threads = Enumerable.Range(0,
+                                   4 * Environment.ProcessorCount)
+                            .Select(_ => new Thread(() =>
+                                                    {
+                                                      while (sw.ElapsedMilliseconds < 1000)
+                                                      {
+                                                        single_!.Call(Run)
+                                                                .GetAwaiter()
+                                                                .GetResult();
+                                                      }
+                                                    }))
+                            .ToList();
+    threads.ForEach(t => t.Start());
+    threads.ForEach(t => t.Join());
+
+    Assert.That(maxRunning,
+                Is.EqualTo(1));
+    Assert.That(executions,
+                Is.GreaterThan(1));
   }
 
   [Test]
@@ -288,6 +385,288 @@ public class ExecutionSingleizerTest
                 Is.EqualTo(3));
     Assert.That(val_,
                 Is.EqualTo(3));
+  }
+
+  [Test]
+  [AbortAfter(60000)]
+  public async Task ConcurrentCallsOnExpiredHandleKeepRefreshing()
+  {
+    var ttl    = TimeSpan.FromMilliseconds(20);
+    var reads  = 0;
+    var single = new ExecutionSingleizer<int>(ttl);
+
+    async Task<int> Read(CancellationToken ct)
+    {
+      var n = Interlocked.Increment(ref reads);
+      await Task.Delay(2,
+                       ct)
+                .ConfigureAwait(false);
+      return n;
+    }
+
+    await single.Call(Read)
+                .ConfigureAwait(false);
+
+    for (var it = 0; it < 200; it++)
+    {
+      await Task.Delay(ttl + TimeSpan.FromMilliseconds(5))
+                .ConfigureAwait(false);
+
+      // Two callers race to replace the expired handle.
+      // A Barrier is used on purpose, although it blocks two thread pool threads in an async test:
+      // it releases both threads at the same time, so they read the expired handle within microseconds.
+      // With a TaskCompletionSource, the continuations are scheduled one after the other and the race is much rarer:
+      // on the code before the fix, the test caught the bug in 5 runs out of 10 with a TaskCompletionSource,
+      // and in 10 runs out of 10 with a Barrier.
+      using var go = new Barrier(2);
+      var t1 = Task.Run(() =>
+                        {
+                          go.SignalAndWait();
+                          return single.Call(Read);
+                        });
+      var t2 = Task.Run(() =>
+                        {
+                          go.SignalAndWait();
+                          return single.Call(Read);
+                        });
+      await Task.WhenAll(t1,
+                         t2)
+                .ConfigureAwait(false);
+
+      var before = reads;
+      await Task.Delay(ttl + TimeSpan.FromMilliseconds(5))
+                .ConfigureAwait(false);
+
+      // The result has expired and there is a single caller: func must be called again
+      await single.Call(Read)
+                  .ConfigureAwait(false);
+      Assert.That(reads,
+                  Is.GreaterThan(before),
+                  $"No refresh after iteration {it}");
+    }
+
+    single.Dispose();
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task CancellationIsNotCached()
+  {
+    var single = new ExecutionSingleizer<int>(TimeSpan.FromSeconds(10));
+
+    using var cts     = new CancellationTokenSource();
+    var       started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var t1 = single.Call(async ct =>
+                         {
+                           started.SetResult(true);
+                           await Task.Delay(1000,
+                                            ct)
+                                     .ConfigureAwait(false);
+                           return 1;
+                         },
+                         cts.Token);
+    // Cancel while func is running
+    await started.Task.ConfigureAwait(false);
+    cts.Cancel();
+    Assert.That(() => t1,
+                Throws.InstanceOf<OperationCanceledException>());
+
+    // The previous call was cancelled by its only caller: its outcome must not be served
+    var i = await single.Call(ct => Set(2,
+                                        0,
+                                        ct))
+                        .ConfigureAwait(false);
+    Assert.That(i,
+                Is.EqualTo(2));
+    Assert.That(val_,
+                Is.EqualTo(2));
+
+    single.Dispose();
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task FailureIsCached()
+  {
+    var single = new ExecutionSingleizer<int>(TimeSpan.FromMilliseconds(100));
+
+    Assert.That(() => single.Call(_ => Task.FromException<int>(new ApplicationException())),
+                Throws.InstanceOf<ApplicationException>());
+
+    // The failure is kept for the validity period
+    Assert.That(() => single.Call(ct => Set(1,
+                                            0,
+                                            ct)),
+                Throws.InstanceOf<ApplicationException>());
+    Assert.That(val_,
+                Is.EqualTo(0));
+
+    await Task.Delay(150)
+              .ConfigureAwait(false);
+
+    var i = await single.Call(ct => Set(2,
+                                        0,
+                                        ct))
+                        .ConfigureAwait(false);
+    Assert.That(i,
+                Is.EqualTo(2));
+
+    single.Dispose();
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task DisposeWhileRunning()
+  {
+    var single  = new ExecutionSingleizer<int>(TimeSpan.FromSeconds(1));
+    var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var gate    = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var task = single.Call(async _ =>
+                           {
+                             started.SetResult(true);
+                             await gate.Task.ConfigureAwait(false);
+                             return 1;
+                           });
+
+    // Dispose while func is running
+    await started.Task.ConfigureAwait(false);
+    Assert.That(() => single.Dispose(),
+                Throws.Nothing);
+
+    gate.SetResult(true);
+
+    // func ignores the cancellation, so the caller still gets its result
+    Assert.That(await task.ConfigureAwait(false),
+                Is.EqualTo(1));
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task DisposeCancelsRunningCall()
+  {
+    var single  = new ExecutionSingleizer<int>(TimeSpan.FromSeconds(1));
+    var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    async Task<int> Run(CancellationToken ct)
+    {
+      started.TrySetResult(true);
+      await Task.Delay(1000,
+                       ct)
+                .ConfigureAwait(false);
+      val_ = 1;
+      return 1;
+    }
+
+    var t1 = single.Call(Run);
+    var t2 = single.Call(Run);
+
+    // Dispose while func is running
+    await started.Task.ConfigureAwait(false);
+    Assert.That(() => single.Dispose(),
+                Throws.Nothing);
+
+    Assert.That(() => t1,
+                Throws.InstanceOf<OperationCanceledException>());
+    Assert.That(() => t2,
+                Throws.InstanceOf<OperationCanceledException>());
+    Assert.That(val_,
+                Is.EqualTo(0));
+  }
+
+  [Test]
+  [AbortAfter(30000)]
+  public void ContinuousCallsKeepRefreshing()
+  {
+    var ttl    = TimeSpan.FromMilliseconds(10);
+    var reads  = 0;
+    var single = new ExecutionSingleizer<int>(ttl);
+    var sw     = Stopwatch.StartNew();
+
+    // More threads than cores, so that callers are preempted in the middle of a call and overlap continuously
+    var threads = Enumerable.Range(0,
+                                   4 * Environment.ProcessorCount)
+                            .Select(_ => new Thread(() =>
+                                                    {
+                                                      while (sw.ElapsedMilliseconds < 1000)
+                                                      {
+                                                        single.Call(_ => Task.FromResult(Interlocked.Increment(ref reads)))
+                                                              .GetAwaiter()
+                                                              .GetResult();
+                                                      }
+                                                    }))
+                            .ToList();
+    threads.ForEach(t => t.Start());
+    threads.ForEach(t => t.Join());
+
+    // About 100 refreshes are expected in 1 s with a validity of 10 ms
+    Assert.That(reads,
+                Is.GreaterThan(20));
+
+    single.Dispose();
+  }
+
+  [Test]
+  [AbortAfter(30000)]
+  public void CallersThatDoNotCancelAreNotCancelled()
+  {
+    var single           = new ExecutionSingleizer<int>();
+    var sw               = Stopwatch.StartNew();
+    var unaskedCancelled = 0;
+
+    async Task<int> Run(CancellationToken ct)
+    {
+      await Task.Yield();
+      ct.ThrowIfCancellationRequested();
+      return 1;
+    }
+
+    // Half of the threads cancel their calls right away, the others never cancel anything.
+    // A caller that does not cancel must never receive a cancellation,
+    // even when it joins an execution whose last caller is leaving.
+    var threads = Enumerable.Range(0,
+                                   4 * Environment.ProcessorCount)
+                            .Select(id => new Thread(() =>
+                                                     {
+                                                       while (sw.ElapsedMilliseconds < 2000)
+                                                       {
+                                                         if (id % 2 == 0)
+                                                         {
+                                                           using var cts = new CancellationTokenSource();
+                                                           var task = single.Call(Run,
+                                                                                  cts.Token);
+                                                           cts.Cancel();
+                                                           try
+                                                           {
+                                                             task.GetAwaiter()
+                                                                 .GetResult();
+                                                           }
+                                                           catch (OperationCanceledException)
+                                                           {
+                                                           }
+                                                         }
+                                                         else
+                                                         {
+                                                           try
+                                                           {
+                                                             single.Call(Run)
+                                                                   .GetAwaiter()
+                                                                   .GetResult();
+                                                           }
+                                                           catch (OperationCanceledException)
+                                                           {
+                                                             Interlocked.Increment(ref unaskedCancelled);
+                                                           }
+                                                         }
+                                                       }
+                                                     }))
+                            .ToList();
+    threads.ForEach(t => t.Start());
+    threads.ForEach(t => t.Join());
+
+    Assert.That(unaskedCancelled,
+                Is.Zero);
+
+    single.Dispose();
   }
 
   private async Task<int> Set(int               i,
