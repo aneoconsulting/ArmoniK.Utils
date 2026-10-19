@@ -315,7 +315,12 @@ public class ExecutionSingleizerTest
       await Task.Delay(ttl + TimeSpan.FromMilliseconds(5))
                 .ConfigureAwait(false);
 
-      // Two callers race to replace the expired handle
+      // Two callers race to replace the expired handle.
+      // A Barrier is used on purpose, although it blocks two thread pool threads in an async test:
+      // it releases both threads at the same time, so they read the expired handle within microseconds.
+      // With a TaskCompletionSource, the continuations are scheduled one after the other and the race is much rarer:
+      // on the code before the fix, the test caught the bug in 5 runs out of 10 with a TaskCompletionSource,
+      // and in 10 runs out of 10 with a Barrier.
       using var go = new Barrier(2);
       var t1 = Task.Run(() =>
                         {
