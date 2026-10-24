@@ -28,6 +28,7 @@ namespace ArmoniK.Utils;
 public struct ParallelTaskOptions
 {
   private readonly int parallelismLimit_ = 0;
+  private readonly int bufferLimit_      = 0;
 
   /// <summary>Limit the parallelism for ParallelSelect</summary>
   public int ParallelismLimit
@@ -40,6 +41,34 @@ public struct ParallelTaskOptions
            _   => parallelismLimit_,
          };
     init => parallelismLimit_ = value;
+  }
+
+  /// <summary>
+  ///   Limit the number of results held by ParallelSelect at any given moment:
+  ///   tasks that have been started and whose result has not been yielded yet, including the running ones.
+  /// </summary>
+  /// <remarks>
+  ///   <para>
+  ///     If BufferLimit is 0 (default), <see cref="ParallelismLimit" /> is used as the limit.
+  ///     If BufferLimit is negative, no limit is enforced: results may then pile up if they are consumed slower than
+  ///     produced.
+  ///   </para>
+  ///   <para>
+  ///     A BufferLimit larger than <see cref="ParallelismLimit" /> lets new tasks start while completed results
+  ///     are waiting to be yielded, for instance behind a slow task when the results are ordered.
+  ///     A BufferLimit lower than <see cref="ParallelismLimit" /> also limits the parallelism.
+  ///   </para>
+  /// </remarks>
+  public int BufferLimit
+  {
+    get
+      => bufferLimit_ switch
+         {
+           < 0 => int.MaxValue,
+           0   => ParallelismLimit,
+           _   => bufferLimit_,
+         };
+    init => bufferLimit_ = value;
   }
 
   /// <summary>Cancellation token used for stopping the enumeration</summary>

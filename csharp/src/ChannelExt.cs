@@ -30,6 +30,7 @@ public static class ChannelExt
 {
   /// <summary>
   ///   Convert a ChannelReader into a IAsyncEnumerable.
+  ///   If the channel has been completed with an error, this error is thrown once all the items have been read.
   /// </summary>
   /// <param name="channel">Channel to convert</param>
   /// <param name="cancellationToken">The cancellation token to use to cancel the enumeration</param>
@@ -39,20 +40,15 @@ public static class ChannelExt
   public static async IAsyncEnumerable<T> ToAsyncEnumerable<T>(this                     ChannelReader<T>  channel,
                                                                [EnumeratorCancellation] CancellationToken cancellationToken)
   {
-    while (true)
+    while (await channel.WaitToReadAsync(cancellationToken)
+                        .ConfigureAwait(false))
     {
-      T res;
-      try
+      while (channel.TryRead(out var res))
       {
-        res = await channel.ReadAsync(cancellationToken)
-                           .ConfigureAwait(false);
-      }
-      catch (ChannelClosedException)
-      {
-        yield break;
-      }
+        yield return res;
 
-      yield return res;
+        cancellationToken.ThrowIfCancellationRequested();
+      }
     }
   }
 }
