@@ -580,7 +580,7 @@ public class ObjectPoolTest
                        (false, _) => pool.WithInstance(EnumerableGenerator<int, int>(3,
                                                                                      (i,
                                                                                       _) => i))
-                                         .ToAsyncEnumerable(),
+                                         .ToAsync(),
                        (true, false) => pool.WithInstanceAsync(EnumerableGenerator<int, int>(3,
                                                                                              (i,
                                                                                               _) => i)),
@@ -1338,7 +1338,7 @@ public class ObjectPoolTest
                                                                                        Func<int, TIn, TOut> f)
     => x => Enumerable.Range(0,
                              n)
-                      .ToAsyncEnumerable()
+                      .ToAsync()
                       .Select(i => f(i,
                                      x));
 
@@ -1346,7 +1346,7 @@ public class ObjectPoolTest
                                                                                        Func<int, TIn, ValueTask<TOut>> f)
     => x => Enumerable.Range(0,
                              n)
-                      .ToAsyncEnumerable()
+                      .ToAsync()
                       .Select((int               i,
                                CancellationToken _) => f(i,
                                                          x));

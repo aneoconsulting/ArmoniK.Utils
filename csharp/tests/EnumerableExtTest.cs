@@ -14,8 +14,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 using NUnit.Framework;
 
@@ -166,9 +169,41 @@ public class EnumerableExtTest
   [Test]
   public void ToBlockingEnumerable()
     => Assert.That(GenerateInts(5)
-                   .ToAsyncEnumerable()
+                   .ToAsync()
                    .ToBlocking(),
                    Is.EqualTo(GenerateInts(5)));
+
+  [Test]
+  public async Task ToAsyncEnumerable()
+    => Assert.That(await GenerateInts(5)
+                         .ToAsync()
+                         .ToListAsync(),
+                   Is.EqualTo(GenerateInts(5)));
+
+  [Test]
+  [TestCase(false)]
+  [TestCase(true)]
+  public async Task ToAsyncCancellation(bool enumeratorToken)
+  {
+    var cts = new CancellationTokenSource();
+
+    await using var enumerator = enumeratorToken
+                                   ? GenerateInts(5)
+                                     .ToAsync()
+                                     .GetAsyncEnumerator(cts.Token)
+                                   : GenerateInts(5)
+                                     .ToAsync(cts.Token)
+                                     .GetAsyncEnumerator(CancellationToken.None);
+
+    Assert.That(await enumerator.MoveNextAsync(),
+                Is.True);
+    Assert.That(enumerator.Current,
+                Is.EqualTo(0));
+    cts.Cancel();
+
+    Assert.That(enumerator.MoveNextAsync,
+                Throws.InstanceOf<OperationCanceledException>());
+  }
 
   private static IEnumerable<int> GenerateInts(int n)
   {

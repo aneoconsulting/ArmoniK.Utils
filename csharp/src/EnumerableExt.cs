@@ -17,6 +17,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 using JetBrains.Annotations;
@@ -147,7 +148,8 @@ public static class EnumerableExt
 
     if (source is null)
     {
-      return AsyncEnumerable.Empty<TSource[]>();
+      return Array.Empty<TSource[]>()
+                  .ToAsync();
     }
 
     return Chunk.IteratorAsync(source,
@@ -163,7 +165,7 @@ public static class EnumerableExt
   /// <param name="source">The source enumerable being iterated.</param>
   /// <typeparam name="T">The type of the objects being iterated.</typeparam>
   /// <returns>
-  ///   An <see cref="IAsyncEnumerable{T}" /> instance that enumerates the source <see cref="IAsyncEnumerable{T}" />
+  ///   An <see cref="IEnumerable{T}" /> instance that enumerates the source <see cref="IAsyncEnumerable{T}" />
   ///   in a blocking manner.
   /// </returns>
   [PublicAPI]
@@ -183,6 +185,31 @@ public static class EnumerableExt
     {
       enumerator.DisposeAsync()
                 .WaitSync();
+    }
+  }
+
+  /// <summary>
+  ///   Converts an <see cref="IEnumerable{T}" /> instance into an <see cref="IAsyncEnumerable{T}" /> that enumerates
+  ///   the elements of the source.
+  /// </summary>
+  /// <remarks>
+  ///   The source is enumerated synchronously, one element per call to
+  ///   <see cref="IAsyncEnumerator{T}.MoveNextAsync" />.
+  /// </remarks>
+  /// <param name="source">The source enumerable being iterated.</param>
+  /// <param name="cancellationToken">The cancellation token to use to cancel the enumeration</param>
+  /// <typeparam name="T">The type of the objects being iterated.</typeparam>
+  /// <returns>
+  ///   An <see cref="IAsyncEnumerable{T}" /> instance that enumerates the source <see cref="IEnumerable{T}" />.
+  /// </returns>
+  [PublicAPI]
+  public static async IAsyncEnumerable<T> ToAsync<T>(this                     IEnumerable<T>    source,
+                                                     [EnumeratorCancellation] CancellationToken cancellationToken = default)
+  {
+    foreach (var item in source)
+    {
+      cancellationToken.ThrowIfCancellationRequested();
+      yield return item;
     }
   }
 }
