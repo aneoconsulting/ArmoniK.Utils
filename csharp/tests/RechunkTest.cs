@@ -22,6 +22,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 using NUnit.Framework;
@@ -678,7 +679,7 @@ public class RechunkTest
 
   [Test]
   [AbortAfter(10000)]
-  public async Task FlushWithEmptyBufferIsIgnored()
+  public async Task FlushBeforeEnumerationIsIgnored()
   {
     var flusher = new ChunkFlusher();
     var gate    = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -697,7 +698,7 @@ public class RechunkTest
                                           flusher: flusher)
                                  .GetAsyncEnumerator();
 
-    // Nothing is buffered yet: ignored
+    // The enumeration has not started yet: ignored
     flusher.Flush();
 
     var move = enumerator.MoveNextAsync();
@@ -716,6 +717,198 @@ public class RechunkTest
                            }));
 
     gate.SetResult(true);
+    Assert.That(await enumerator.MoveNextAsync()
+                                .ConfigureAwait(false),
+                Is.False);
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task FlushWithEmptyBufferAppliesToNextData()
+  {
+    var flusher = new ChunkFlusher();
+    var gate    = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    await using var enumerator = Gated(Array.Empty<int[]>(),
+                                       gate.Task,
+                                       new[]
+                                       {
+                                         new[]
+                                         {
+                                           0,
+                                         },
+                                         new[]
+                                         {
+                                           1,
+                                           2,
+                                           3,
+                                           4,
+                                         },
+                                       })
+                                 .Rechunk(4,
+                                          8,
+                                          flusher: flusher)
+                                 .GetAsyncEnumerator();
+
+    // Nothing is buffered while the source is waiting
+    var move = enumerator.MoveNextAsync();
+    await Task.Delay(100)
+              .ConfigureAwait(false);
+    Assert.That(move.IsCompleted,
+                Is.False);
+
+    flusher.Flush();
+    gate.SetResult(true);
+
+    var chunks = new List<int[]>();
+    while (await move.ConfigureAwait(false))
+    {
+      chunks.Add(enumerator.Current.ToArray());
+      move = enumerator.MoveNextAsync();
+    }
+
+    Assert.That(chunks,
+                Is.EqualTo(new[]
+                           {
+                             new[]
+                             {
+                               0,
+                             },
+                             new[]
+                             {
+                               1,
+                               2,
+                               3,
+                               4,
+                             },
+                           }));
+  }
+
+  [Test]
+  [AbortAfter(10000)]
+  public async Task FlushWithEmptyBufferAppliesToRemainder()
+  {
+    var flusher = new ChunkFlusher();
+    var gate    = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    await using var enumerator = Gated(Array.Empty<int[]>(),
+                                       gate.Task,
+                                       new[]
+                                       {
+                                         new[]
+                                         {
+                                           0,
+                                           1,
+                                           2,
+                                           3,
+                                           4,
+                                           5,
+                                         },
+                                         new[]
+                                         {
+                                           6,
+                                         },
+                                       })
+                                 .Rechunk(4,
+                                          4,
+                                          flusher: flusher)
+                                 .GetAsyncEnumerator();
+
+    var move = enumerator.MoveNextAsync();
+    await Task.Delay(100)
+              .ConfigureAwait(false);
+    Assert.That(move.IsCompleted,
+                Is.False);
+
+    flusher.Flush();
+    gate.SetResult(true);
+
+    var chunks = new List<int[]>();
+    while (await move.ConfigureAwait(false))
+    {
+      chunks.Add(enumerator.Current.ToArray());
+      move = enumerator.MoveNextAsync();
+    }
+
+    // [4, 5] is not merged with [6]
+    Assert.That(chunks,
+                Is.EqualTo(new[]
+                           {
+                             new[]
+                             {
+                               0,
+                               1,
+                               2,
+                               3,
+                             },
+                             new[]
+                             {
+                               4,
+                               5,
+                             },
+                             new[]
+                             {
+                               6,
+                             },
+                           }));
+  }
+
+  // Without a timeout, a lost flush would block the data written before it forever
+  [Test]
+  [AbortAfter(60000)]
+  public async Task WriteThenFlushIsNeverLost([Range(0,
+                                                     4)]
+                                              int seed)
+  {
+    var rng     = new Random(seed);
+    var flusher = new ChunkFlusher();
+    var channel = Channel.CreateUnbounded<ReadOnlyMemory<int>>();
+
+    await using var enumerator = channel.Reader.ToAsyncEnumerable(CancellationToken.None)
+                                        .Rechunk(4,
+                                                 8,
+                                                 flusher: flusher)
+                                        .GetAsyncEnumerator();
+
+    var next = 0;
+    for (var round = 0; round < 500; ++round)
+    {
+      var chunk = Enumerable.Range(next,
+                                   rng.Next(1,
+                                            12))
+                            .ToArray();
+      next += chunk.Length;
+
+      var move = enumerator.MoveNextAsync();
+      if (rng.Next(2) == 0)
+      {
+        await Task.Yield();
+      }
+
+      Assert.That(channel.Writer.TryWrite(chunk),
+                  Is.True);
+      flusher.Flush();
+
+      // Everything written so far is yielded
+      var received = new List<int>();
+      while (true)
+      {
+        Assert.That(await move.ConfigureAwait(false),
+                    Is.True);
+        received.AddRange(enumerator.Current.ToArray());
+        if (received.Count == chunk.Length)
+        {
+          break;
+        }
+
+        move = enumerator.MoveNextAsync();
+      }
+
+      Assert.That(received,
+                  Is.EqualTo(chunk));
+    }
+
+    channel.Writer.Complete();
     Assert.That(await enumerator.MoveNextAsync()
                                 .ConfigureAwait(false),
                 Is.False);

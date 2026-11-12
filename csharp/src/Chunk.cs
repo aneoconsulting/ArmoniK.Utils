@@ -156,7 +156,7 @@ internal static class Chunk
           // Checked first, so that available data wins
           if (!trigger.NextCompleted)
           {
-            trigger.Disarm();
+            trigger.Reset();
             yield return adapter.FromMemory(chunker.Flush());
             continue; // The source is still fetching
           }
@@ -189,8 +189,17 @@ internal static class Chunk
         chunker.Push(adapter.ToMemory(enumerator.Current));
         while (chunker.TryPop(out var chunk))
         {
-          // The buffer is empty when a chunk is produced
-          trigger?.Disarm();
+          // The data buffered before is in this chunk: the deadline restarts for the remainder, and the flusher too once
+          // nothing is left
+          if (chunker.IsEmpty)
+          {
+            trigger?.Reset();
+          }
+          else
+          {
+            trigger?.Disarm();
+          }
+
           yield return adapter.FromMemory(chunk);
         }
 
@@ -204,7 +213,7 @@ internal static class Chunk
           // Synchronous sources can also be slow
           if (trigger.IsDue)
           {
-            trigger.Disarm();
+            trigger.Reset();
             yield return adapter.FromMemory(chunker.Flush());
           }
         }
@@ -331,8 +340,9 @@ internal static class Chunk
       maxSize_ = maxSize;
     }
 
+    // Whether nothing is buffered nor left to pop
     public bool IsEmpty
-      => count_ == 0;
+      => count_ == 0 && pending_.IsEmpty;
 
     // The previous input chunk must have been entirely consumed
     public void Push(ReadOnlyMemory<T> input)
@@ -467,7 +477,8 @@ internal static class Chunk
   }
 
   // Fires when the deadline of the buffered data expires, or when the flusher is triggered.
-  // Armed while data is buffered: a flush requested while not armed is ignored.
+  // Armed while data is buffered. The flusher token is captured when nothing is buffered anymore, so that a flush
+  // requested while nothing is buffered applies to the next data.
   //
   // The completion of the fetch, the deadline and the flusher only signal the enumeration, which then checks the
   // state again: a late or spurious signal is harmless. The fetch is "hooked" with a continuation to signal its
@@ -501,7 +512,8 @@ internal static class Chunk
       delayMs_ = maxDelay == Timeout.InfiniteTimeSpan
                    ? Timeout.Infinite
                    : (int)Math.Ceiling(maxDelay.TotalMilliseconds);
-      flusher_ = flusher;
+      flusher_    = flusher;
+      flushToken_ = flusher?.Token ?? default;
       onNextCompleted_ = () =>
                          {
                            Volatile.Write(ref nextCompleted_,
@@ -550,15 +562,13 @@ internal static class Chunk
     // start: Environment.TickCount when the data was received
     public void Arm(int start)
     {
-      IsArmed     = true;
-      start_      = start;
-      flushToken_ = flusher_?.Token ?? default;
+      IsArmed = true;
+      start_  = start;
     }
 
     public void Disarm()
     {
-      IsArmed     = false;
-      flushToken_ = default;
+      IsArmed = false;
       if (!started_)
       {
         return;
@@ -568,6 +578,13 @@ internal static class Chunk
       flushRegistration_.Dispose();
       timer_?.Change(Timeout.Infinite,
                      Timeout.Infinite);
+    }
+
+    // Must be called when nothing is buffered anymore: a flush requested from now on applies to the next data
+    public void Reset()
+    {
+      Disarm();
+      flushToken_ = flusher_?.Token ?? default;
     }
 
     // Registers a continuation on next, unless already done

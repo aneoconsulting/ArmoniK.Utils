@@ -123,6 +123,8 @@ public static class EnumerableExt
   ///   Every chunk will be of size <paramref name="size" />, except the last one and the ones yielded early because of
   ///   <paramref name="maxDelay" /> or <paramref name="flusher" />.
   ///   If the source throws, the elements already read are yielded before the exception is rethrown.
+  ///   If the enumeration stops while the source is fetching, the fetch is cancelled and awaited before disposing the
+  ///   source: the source should honor its cancellation token.
   /// </remarks>
   /// <param name="source">
   ///   An <see cref="IAsyncEnumerable{T}" /> whose elements to chunk.
@@ -193,6 +195,10 @@ public static class EnumerableExt
   ///   </para>
   ///   <para>
   ///     If the source throws, the elements already read are yielded before the exception is rethrown.
+  ///   </para>
+  ///   <para>
+  ///     If the enumeration stops while the source is fetching, the fetch is cancelled and awaited before disposing
+  ///     the source: the source should honor its cancellation token.
   ///   </para>
   /// </remarks>
   /// <param name="source">

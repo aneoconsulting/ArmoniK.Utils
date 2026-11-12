@@ -24,8 +24,9 @@ namespace ArmoniK.Utils;
 ///   Trigger to yield the elements buffered by a chunking enumeration early, as if its delay had expired.
 /// </summary>
 /// <remarks>
-///   A flush only applies to the elements already buffered. A flusher can be shared between enumerations, and
-///   <see cref="Flush" /> can be called from any thread.
+///   A flush applies to the elements already buffered. If an enumeration has nothing buffered, it applies to the next
+///   element read instead. A flusher can be shared between enumerations, and <see cref="Flush" /> can be called from
+///   any thread.
 /// </remarks>
 [PublicAPI]
 public sealed class ChunkFlusher
