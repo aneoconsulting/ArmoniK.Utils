@@ -92,27 +92,30 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
   public T Current { get; private set; } = default!;
 
   /// <inheritdoc />
-  public async ValueTask<bool> MoveNextAsync()
+  public ValueTask<bool> MoveNextAsync()
   {
     enumerationCancellationToken_.ThrowIfCancellationRequested();
 
-    // Fast path: nothing has been peeked, read directly from the source without buffering
-    if (buffer_.Count == 0)
+    if (buffer_.Count > 0)
     {
-      var (success, value) = await TryMoveNextAsync()
-                               .ConfigureAwait(false);
-      Current = value;
-      return success;
+      Current = buffer_.Dequeue();
+      return new ValueTask<bool>(true);
     }
 
-    Current = buffer_.Dequeue();
-    return true;
+    // Nothing has been peeked, read directly from the source without buffering
+    var moveNext = MoveSourceAsync();
+    return moveNext.TryGetSync(out var hasNext)
+             ? new ValueTask<bool>(SetCurrent(hasNext))
+             : Core(moveNext);
+
+    async ValueTask<bool> Core(ValueTask<bool> pending)
+      => SetCurrent(await pending.ConfigureAwait(false));
   }
 
   /// <summary>
   ///   Release the source and the buffered elements. The instance then behaves as exhausted.
   /// </summary>
-  public async ValueTask DisposeAsync()
+  public ValueTask DisposeAsync()
   {
     completed_ = true;
     Current    = default!;
@@ -121,11 +124,8 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
 
     var enumerator = enumerator_;
     enumerator_ = null;
-    if (enumerator is not null)
-    {
-      await enumerator.DisposeAsync()
-                      .ConfigureAwait(false);
-    }
+
+    return enumerator?.DisposeAsync() ?? new ValueTask();
   }
 
   /// <summary>
@@ -151,13 +151,15 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
   /// </summary>
   /// <returns>The next element</returns>
   /// <exception cref="InvalidOperationException">There are no more elements</exception>
-  public async ValueTask<T> PeekAsync()
+  public ValueTask<T> PeekAsync()
   {
-    var (success, value) = await TryPeekAsync()
-                             .ConfigureAwait(false);
-    return success
-             ? value
-             : throw new InvalidOperationException("There are no more elements to peek");
+    var fill = FillAsync(1);
+    return fill.TryGetSync(out var n)
+             ? new ValueTask<T>(PeekFirst(n))
+             : Core(fill);
+
+    async ValueTask<T> Core(ValueTask<int> pending)
+      => PeekFirst(await pending.ConfigureAwait(false));
   }
 
   /// <summary>
@@ -170,7 +172,6 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
   /// <exception cref="ArgumentOutOfRangeException"><paramref name="count" /> is negative</exception>
   public ValueTask<T[]> PeekAsync(int count)
   {
-    // Validated eagerly, so the exception is thrown by the call itself
     if (count < 0)
     {
       throw new ArgumentOutOfRangeException(nameof(count),
@@ -178,15 +179,13 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
                                             "Cannot peek a negative number of elements");
     }
 
-    return Core();
+    var fill = FillAsync(count);
+    return fill.TryGetSync(out var n)
+             ? new ValueTask<T[]>(PeekMany(n))
+             : Core(fill);
 
-    async ValueTask<T[]> Core()
-    {
-      var n = await FillAsync(count)
-                .ConfigureAwait(false);
-      return buffer_.Take(n)
-                    .ToArray();
-    }
+    async ValueTask<T[]> Core(ValueTask<int> pending)
+      => PeekMany(await pending.ConfigureAwait(false));
   }
 
   /// <summary>
@@ -195,42 +194,86 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
   /// <returns>
   ///   Whether there is a next element, and the next element if there is one (<c>default</c> otherwise)
   /// </returns>
-  public async ValueTask<(bool Success, T Value)> TryPeekAsync()
+  public ValueTask<(bool Success, T Value)> TryPeekAsync()
   {
-    if (await FillAsync(1)
-          .ConfigureAwait(false) == 0)
-    {
-      return (false, default!);
-    }
+    var fill = FillAsync(1);
+    return fill.TryGetSync(out var n)
+             ? new ValueTask<(bool Success, T Value)>(TryPeekFirst(n))
+             : Core(fill);
 
-    return (true, buffer_.Peek());
+    async ValueTask<(bool Success, T Value)> Core(ValueTask<int> pending)
+      => TryPeekFirst(await pending.ConfigureAwait(false));
   }
+
+  private bool SetCurrent(bool hasNext)
+  {
+    Current = hasNext
+                ? enumerator_!.Current
+                : default!;
+    return hasNext;
+  }
+
+  private T PeekFirst(int buffered)
+    => buffered > 0
+         ? buffer_.Peek()
+         : throw new InvalidOperationException("There are no more elements to peek");
+
+  private T[] PeekMany(int buffered)
+    => buffer_.Take(buffered)
+              .ToArray();
+
+  private (bool Success, T Value) TryPeekFirst(int buffered)
+    => buffered > 0
+         ? (true, buffer_.Peek())
+         : (false, default!);
 
   // Buffer elements until there are at least count of them or the source is exhausted.
   // Returns the number of buffered elements, capped to count.
-  private async ValueTask<int> FillAsync(int count)
+  private ValueTask<int> FillAsync(int count)
   {
     while (buffer_.Count < count)
     {
-      var (success, value) = await TryMoveNextAsync()
-                               .ConfigureAwait(false);
-      if (!success)
+      var moveNext = MoveSourceAsync();
+      if (!moveNext.TryGetSync(out var hasNext))
+      {
+        return Core(moveNext);
+      }
+
+      if (!hasNext)
       {
         break;
       }
 
-      buffer_.Enqueue(value);
+      buffer_.Enqueue(enumerator_!.Current);
     }
 
-    return Math.Min(buffer_.Count,
-                    count);
+    return new ValueTask<int>(Math.Min(buffer_.Count,
+                                       count));
+
+    async ValueTask<int> Core(ValueTask<bool> pending)
+    {
+      while (await pending.ConfigureAwait(false))
+      {
+        buffer_.Enqueue(enumerator_!.Current);
+        if (buffer_.Count >= count)
+        {
+          break;
+        }
+
+        pending = MoveSourceAsync();
+      }
+
+      return Math.Min(buffer_.Count,
+                      count);
+    }
   }
 
-  private async ValueTask<(bool Success, T Value)> TryMoveNextAsync()
+  // Advance the source. When it returns true, the new element is enumerator_.Current.
+  private ValueTask<bool> MoveSourceAsync()
   {
     if (completed_)
     {
-      return (false, default!);
+      return new ValueTask<bool>(false);
     }
 
     if (enumerator_ is null)
@@ -241,19 +284,44 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
       source_ = null;
     }
 
-    if (await enumerator_.MoveNextAsync()
-                         .ConfigureAwait(false))
+    var moveNext = enumerator_.MoveNextAsync();
+    if (moveNext.TryGetSync(out var hasNext))
     {
-      return (true, enumerator_.Current);
+      return hasNext
+               ? new ValueTask<bool>(true)
+               : ReleaseSourceAsync();
     }
 
-    // Release the source as soon as it is exhausted
-    completed_ = true;
-    var enumerator = enumerator_;
-    enumerator_ = null;
-    await enumerator.DisposeAsync()
-                    .ConfigureAwait(false);
+    return Core(moveNext);
 
-    return (false, default!);
+    async ValueTask<bool> Core(ValueTask<bool> pending)
+    {
+      if (await pending.ConfigureAwait(false))
+      {
+        return true;
+      }
+
+      return await ReleaseSourceAsync()
+               .ConfigureAwait(false);
+    }
+  }
+
+  // Release the source as soon as it is exhausted. Always returns false.
+  private ValueTask<bool> ReleaseSourceAsync()
+  {
+    completed_ = true;
+    var enumerator = enumerator_!;
+    enumerator_ = null;
+
+    var dispose = enumerator.DisposeAsync();
+    return dispose.TryGetSync()
+             ? new ValueTask<bool>(false)
+             : Core(dispose);
+
+    static async ValueTask<bool> Core(ValueTask pending)
+    {
+      await pending.ConfigureAwait(false);
+      return false;
+    }
   }
 }

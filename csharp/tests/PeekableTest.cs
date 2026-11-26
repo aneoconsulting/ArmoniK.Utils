@@ -345,9 +345,12 @@ public class PeekableTest
   }
 
   [Test]
-  public async Task IsItsOwnEnumeratorAsync()
+  public async Task IsItsOwnEnumeratorAsync([Values] bool synchronous)
   {
-    await using var peekable = new TrackedSource(3).AsPeekableAsync();
+    await using var peekable = new TrackedSource(3)
+                               {
+                                 Synchronous = synchronous,
+                               }.AsPeekableAsync();
 
     Assert.That(peekable.GetAsyncEnumerator(),
                 Is.SameAs(peekable));
@@ -356,9 +359,12 @@ public class PeekableTest
   }
 
   [Test]
-  public async Task PeekDoesNotConsumeAsync()
+  public async Task PeekDoesNotConsumeAsync([Values] bool synchronous)
   {
-    var             source   = new TrackedSource(5);
+    var source = new TrackedSource(5)
+                 {
+                   Synchronous = synchronous,
+                 };
     await using var peekable = source.AsPeekableAsync();
 
     Assert.That(source.GetEnumeratorCalls,
@@ -388,9 +394,12 @@ public class PeekableTest
   }
 
   [Test]
-  public async Task PeekManyAsync()
+  public async Task PeekManyAsync([Values] bool synchronous)
   {
-    await using var peekable = new TrackedSource(5).AsPeekableAsync();
+    await using var peekable = new TrackedSource(5)
+                               {
+                                 Synchronous = synchronous,
+                               }.AsPeekableAsync();
 
     Assert.That(await peekable.PeekAsync(0)
                               .ConfigureAwait(false),
@@ -416,9 +425,12 @@ public class PeekableTest
   }
 
   [Test]
-  public async Task PeekWhileEnumeratingAsync()
+  public async Task PeekWhileEnumeratingAsync([Values] bool synchronous)
   {
-    var             source   = new TrackedSource(10);
+    var source = new TrackedSource(10)
+                 {
+                   Synchronous = synchronous,
+                 };
     await using var peekable = source.AsPeekableAsync();
 
     Assert.That(await peekable.PeekAsync()
@@ -476,9 +488,12 @@ public class PeekableTest
   }
 
   [Test]
-  public async Task DisposalAsync()
+  public async Task DisposalAsync([Values] bool synchronous)
   {
-    var source   = new TrackedSource(5);
+    var source = new TrackedSource(5)
+                 {
+                   Synchronous = synchronous,
+                 };
     var peekable = source.AsPeekableAsync();
 
     Assert.That(await peekable.PeekAsync(2)
@@ -509,9 +524,12 @@ public class PeekableTest
   }
 
   [Test]
-  public async Task DisposeSourceWhenExhaustedAsync()
+  public async Task DisposeSourceWhenExhaustedAsync([Values] bool synchronous)
   {
-    var             source   = new TrackedSource(3);
+    var source = new TrackedSource(3)
+                 {
+                   Synchronous = synchronous,
+                 };
     await using var peekable = source.AsPeekableAsync();
 
     Assert.That(await peekable.PeekAsync(5)
@@ -529,10 +547,13 @@ public class PeekableTest
   }
 
   [Test]
-  public async Task SourceErrorAsync()
+  public async Task SourceErrorAsync([Values] bool synchronous)
   {
     await using var peekable = new TrackedSource(5,
-                                                 3).AsPeekableAsync();
+                                                 3)
+                               {
+                                 Synchronous = synchronous,
+                               }.AsPeekableAsync();
 
     Assert.That(async () => await peekable.PeekAsync(5)
                                           .ConfigureAwait(false),
@@ -549,9 +570,12 @@ public class PeekableTest
   }
 
   [Test]
-  public async Task WrapEnumeratorAsync()
+  public async Task WrapEnumeratorAsync([Values] bool synchronous)
   {
-    var source = new TrackedSource(5);
+    var source = new TrackedSource(5)
+                 {
+                   Synchronous = synchronous,
+                 };
     var peekable = source.GetAsyncEnumerator()
                          .AsPeekableAsync();
 
@@ -587,10 +611,13 @@ public class PeekableTest
   }
 
   [Test]
-  public async Task SourceCancellationTokenAsync()
+  public async Task SourceCancellationTokenAsync([Values] bool synchronous)
   {
-    using var cts    = new CancellationTokenSource();
-    var       source = new TrackedSource(5);
+    using var cts = new CancellationTokenSource();
+    var source = new TrackedSource(5)
+                 {
+                   Synchronous = synchronous,
+                 };
 
     await using (var peekable = source.AsPeekableAsync(cts.Token))
     {
@@ -603,7 +630,10 @@ public class PeekableTest
                   "The construction token should have priority");
     }
 
-    source = new TrackedSource(5);
+    source = new TrackedSource(5)
+             {
+               Synchronous = synchronous,
+             };
     await using (var peekable = source.AsPeekableAsync())
     {
       Assert.That(await CollectAsync(peekable.WithCancellation(cts.Token))
@@ -614,7 +644,10 @@ public class PeekableTest
                   "The enumeration token should be used when none was given at construction");
     }
 
-    source = new TrackedSource(5);
+    source = new TrackedSource(5)
+             {
+               Synchronous = synchronous,
+             };
     await using (var peekable = source.AsPeekableAsync())
     {
       Assert.That(await peekable.PeekAsync()
@@ -630,9 +663,12 @@ public class PeekableTest
   }
 
   [Test]
-  public async Task EnumerationCancellationAsync()
+  public async Task EnumerationCancellationAsync([Values] bool synchronous)
   {
-    var             source   = new TrackedSource(5);
+    var source = new TrackedSource(5)
+                 {
+                   Synchronous = synchronous,
+                 };
     await using var peekable = source.AsPeekableAsync();
     using var       cts      = new CancellationTokenSource();
     var             received = new List<int>();
@@ -660,6 +696,60 @@ public class PeekableTest
                 Is.EqualTo(1));
   }
 
+  [Test]
+  public void SynchronousCompletion()
+  {
+    var source = new TrackedSource(5)
+                 {
+                   Synchronous = true,
+                 };
+    var peekable = source.AsPeekableAsync();
+
+    AssertSync(peekable.TryPeekAsync(),
+               (true, 0));
+    AssertSync(peekable.PeekAsync(),
+               0);
+    AssertSync(peekable.PeekAsync(2),
+               new[]
+               {
+                 0,
+                 1,
+               });
+
+    // Consume a buffered element, then one read directly from the source
+    for (var i = 0; i < 3; ++i)
+    {
+      AssertSync(peekable.MoveNextAsync(),
+                 true);
+      Assert.That(peekable.Current,
+                  Is.EqualTo(i));
+    }
+
+    // Exhaust the source
+    AssertSync(peekable.PeekAsync(10),
+               new[]
+               {
+                 3,
+                 4,
+               });
+    Assert.That(source.DisposeCalls,
+                Is.EqualTo(1));
+
+    var dispose = peekable.DisposeAsync();
+    Assert.That(dispose.IsCompletedSuccessfully,
+                Is.True);
+  }
+
+  private static void AssertSync<TResult>(ValueTask<TResult> task,
+                                          TResult            expected)
+  {
+    Assert.That(task.IsCompletedSuccessfully,
+                Is.True,
+                "The operation should complete synchronously");
+    Assert.That(task.Result,
+                Is.EqualTo(expected));
+  }
+
   private static async Task<List<int>> CollectAsync(ConfiguredCancelableAsyncEnumerable<int> enumerable)
   {
     var list = new List<int>();
@@ -685,6 +775,11 @@ public class PeekableTest
       n_       = n;
       throwAt_ = throwAt;
     }
+
+    /// <summary>
+    ///   Whether the async operations complete synchronously
+    /// </summary>
+    public bool Synchronous { get; init; }
 
     public int               GetEnumeratorCalls { get; private set; }
     public int               MoveNextCalls      { get; private set; }
@@ -716,14 +811,35 @@ public class PeekableTest
 
       public ValueTask DisposeAsync()
       {
-        Dispose();
-        return default;
+        if (source_.Synchronous)
+        {
+          Dispose();
+          return default;
+        }
+
+        return Core();
+
+        async ValueTask Core()
+        {
+          await Task.Yield();
+          Dispose();
+        }
       }
 
-      public async ValueTask<bool> MoveNextAsync()
+      public ValueTask<bool> MoveNextAsync()
       {
-        await Task.Yield();
-        return MoveNext();
+        if (source_.Synchronous)
+        {
+          return new ValueTask<bool>(MoveNext());
+        }
+
+        return Core();
+
+        async ValueTask<bool> Core()
+        {
+          await Task.Yield();
+          return MoveNext();
+        }
       }
 
       public int Current { get; private set; } = -1;
