@@ -88,12 +88,12 @@ public static class ValueTaskExt
   ///   <paramref name="exception" /> would.
   /// </summary>
   /// <remarks>
-  ///   Unlike <see cref="FromCanceled" />, the token of <paramref name="exception" /> does not need to be canceled, and
-  ///   awaiting the returned task rethrows <paramref name="exception" /> itself.
+  ///   Unlike <see cref="FromCanceled(CancellationToken)" />, the token of <paramref name="exception" /> does not need to be
+  ///   canceled, and awaiting the returned task rethrows <paramref name="exception" /> itself.
   /// </remarks>
   /// <param name="exception">The exception with which to complete the task.</param>
   /// <returns>The canceled task.</returns>
-  internal static ValueTask FromOperationCanceled(OperationCanceledException exception)
+  internal static ValueTask FromCanceled(OperationCanceledException exception)
   {
     return Core(exception);
 
@@ -108,13 +108,13 @@ public static class ValueTaskExt
   ///   <paramref name="exception" /> would.
   /// </summary>
   /// <remarks>
-  ///   Unlike <see cref="FromCanceled{TResult}" />, the token of <paramref name="exception" /> does not need to be canceled,
-  ///   and awaiting the returned task rethrows <paramref name="exception" /> itself.
+  ///   Unlike <see cref="FromCanceled{TResult}(CancellationToken)" />, the token of <paramref name="exception" /> does not
+  ///   need to be canceled, and awaiting the returned task rethrows <paramref name="exception" /> itself.
   /// </remarks>
   /// <param name="exception">The exception with which to complete the task.</param>
   /// <typeparam name="TResult">The type of the result returned by the task.</typeparam>
   /// <returns>The canceled task.</returns>
-  internal static ValueTask<TResult> FromOperationCanceled<TResult>(OperationCanceledException exception)
+  internal static ValueTask<TResult> FromCanceled<TResult>(OperationCanceledException exception)
   {
     return Core(exception);
 
@@ -170,7 +170,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromOperationCanceled(ex);
+      return FromCanceled(ex);
     }
     catch (Exception ex)
     {
@@ -216,7 +216,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromOperationCanceled<TOut>(ex);
+      return FromCanceled<TOut>(ex);
     }
     catch (Exception ex)
     {
@@ -260,7 +260,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromOperationCanceled(ex);
+      return FromCanceled(ex);
     }
     catch (Exception ex)
     {
@@ -307,7 +307,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromOperationCanceled<TOut>(ex);
+      return FromCanceled<TOut>(ex);
     }
     catch (Exception ex)
     {
@@ -361,7 +361,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromOperationCanceled(ex);
+      return FromCanceled(ex);
     }
     catch (Exception ex)
     {
@@ -408,7 +408,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromOperationCanceled<TOut>(ex);
+      return FromCanceled<TOut>(ex);
     }
     catch (Exception ex)
     {
@@ -454,7 +454,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromOperationCanceled(ex);
+      return FromCanceled(ex);
     }
     catch (Exception ex)
     {
@@ -502,7 +502,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromOperationCanceled<TOut>(ex);
+      return FromCanceled<TOut>(ex);
     }
     catch (Exception ex)
     {
