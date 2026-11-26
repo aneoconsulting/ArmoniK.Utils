@@ -295,6 +295,47 @@ public class PoolPolicyTest
 
   [Test]
   [AbortAfter(1000)]
+  public void ThrowUncanceledOperationCanceled()
+  {
+    var exception = new OperationCanceledException();
+    var policy = new PoolPolicy<int>().SetCreate(Create)
+                                      .SetValidate(Validate);
+
+    foreach (var call in new Func<Task>[]
+                         {
+                           () => policy.CreateAsync()
+                                       .AsTask(),
+                           () => policy.ValidateAcquireAsync(0)
+                                       .AsTask(),
+                           () => policy.ValidateReleaseAsync(0,
+                                                             null)
+                                       .AsTask(),
+                         })
+    {
+      Task? task = null;
+      Assert.That(() =>
+                  {
+                    task = call();
+                  },
+                  Throws.Nothing);
+      Assert.That(task!.IsCanceled,
+                  Is.True);
+      Assert.That(() => task.GetAwaiter()
+                            .GetResult(),
+                  Throws.Exception.SameAs(exception));
+    }
+
+    return;
+
+    int Create()
+      => throw exception;
+
+    bool Validate(int _)
+      => throw exception;
+  }
+
+  [Test]
+  [AbortAfter(1000)]
   [TestCase(null)]
   [TestCase(-1)]
   [TestCase(0)]

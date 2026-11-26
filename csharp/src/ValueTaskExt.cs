@@ -84,6 +84,50 @@ public static class ValueTaskExt
     => new(Task.FromCanceled<TResult>(cancellationToken));
 
   /// <summary>
+  ///   Creates a <see cref="ValueTask" /> that's completed due to cancellation, as an async method throwing
+  ///   <paramref name="exception" /> would.
+  /// </summary>
+  /// <remarks>
+  ///   Unlike <see cref="FromCanceled" />, the token of <paramref name="exception" /> does not need to be canceled, and
+  ///   awaiting the returned task rethrows <paramref name="exception" /> itself.
+  /// </remarks>
+  /// <param name="exception">The exception with which to complete the task.</param>
+  /// <returns>The canceled task.</returns>
+  internal static ValueTask FromOperationCanceled(OperationCanceledException exception)
+  {
+    return Core(exception);
+
+#pragma warning disable CS1998 // Async method lacks 'await' operators: the builder turns the throw into a canceled task
+    static async ValueTask Core(OperationCanceledException exception)
+      => exception.RethrowWithStacktrace();
+#pragma warning restore CS1998
+  }
+
+  /// <summary>
+  ///   Creates a <see cref="ValueTask{TResult}" /> that's completed due to cancellation, as an async method throwing
+  ///   <paramref name="exception" /> would.
+  /// </summary>
+  /// <remarks>
+  ///   Unlike <see cref="FromCanceled{TResult}" />, the token of <paramref name="exception" /> does not need to be canceled,
+  ///   and awaiting the returned task rethrows <paramref name="exception" /> itself.
+  /// </remarks>
+  /// <param name="exception">The exception with which to complete the task.</param>
+  /// <typeparam name="TResult">The type of the result returned by the task.</typeparam>
+  /// <returns>The canceled task.</returns>
+  internal static ValueTask<TResult> FromOperationCanceled<TResult>(OperationCanceledException exception)
+  {
+    return Core(exception);
+
+#pragma warning disable CS1998 // Async method lacks 'await' operators: the builder turns the throw into a canceled task
+    static async ValueTask<TResult> Core(OperationCanceledException exception)
+    {
+      exception.RethrowWithStacktrace();
+      return default!;
+    }
+#pragma warning restore CS1998
+  }
+
+  /// <summary>
   ///   Creates a <see cref="ValueTask{TResult}" /> that's completed successfully with the specified result.
   /// </summary>
   /// <param name="result">The result to store into the completed task.</param>
@@ -126,7 +170,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromCanceled(ex.CancellationToken);
+      return FromOperationCanceled(ex);
     }
     catch (Exception ex)
     {
@@ -172,7 +216,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromCanceled<TOut>(ex.CancellationToken);
+      return FromOperationCanceled<TOut>(ex);
     }
     catch (Exception ex)
     {
@@ -216,7 +260,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromCanceled(ex.CancellationToken);
+      return FromOperationCanceled(ex);
     }
     catch (Exception ex)
     {
@@ -263,7 +307,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromCanceled<TOut>(ex.CancellationToken);
+      return FromOperationCanceled<TOut>(ex);
     }
     catch (Exception ex)
     {
@@ -317,7 +361,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromCanceled(ex.CancellationToken);
+      return FromOperationCanceled(ex);
     }
     catch (Exception ex)
     {
@@ -364,7 +408,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromCanceled<TOut>(ex.CancellationToken);
+      return FromOperationCanceled<TOut>(ex);
     }
     catch (Exception ex)
     {
@@ -410,7 +454,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromCanceled(ex.CancellationToken);
+      return FromOperationCanceled(ex);
     }
     catch (Exception ex)
     {
@@ -458,7 +502,7 @@ public static class ValueTaskExt
     }
     catch (OperationCanceledException ex)
     {
-      return FromCanceled<TOut>(ex.CancellationToken);
+      return FromOperationCanceled<TOut>(ex);
     }
     catch (Exception ex)
     {

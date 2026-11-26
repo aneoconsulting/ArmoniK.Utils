@@ -26,6 +26,18 @@ namespace ArmoniK.Utils.Tests;
 
 public class ValueTaskExtTest
 {
+  public enum AndThenOverload
+  {
+    UntypedAction,
+    UntypedFunc,
+    UntypedAsyncAction,
+    UntypedAsyncFunc,
+    TypedAction,
+    TypedFunc,
+    TypedAsyncAction,
+    TypedAsyncFunc,
+  }
+
   public enum CompletedTaskStatus
   {
     RanToCompletion,
@@ -409,6 +421,108 @@ public class ValueTaskExtTest
     return value;
   }
 
+
+  [Test]
+  [AbortAfter(1000)]
+  public void AndThenContinuationThrowsUncanceledOperationCanceled([Values] AndThenOverload overload)
+  {
+    var   exception = new OperationCanceledException();
+    Task? task      = null;
+
+    Assert.That(() =>
+                {
+                  task = AndThen(overload,
+                                 new ValueTask<int>(0),
+                                 () => throw exception);
+                },
+                Throws.Nothing);
+    Assert.That(task!.IsCanceled,
+                Is.True);
+    Assert.That(() => task.GetAwaiter()
+                          .GetResult(),
+                Throws.Exception.SameAs(exception));
+  }
+
+  [Test]
+  [AbortAfter(1000)]
+  public void AndThenSourceCanceledWithUncanceledToken([Values] AndThenOverload overload)
+  {
+    var tcs = new TaskCompletionSource<int>();
+    tcs.SetCanceled();
+    var   continued = false;
+    Task? task      = null;
+
+    Assert.That(() =>
+                {
+                  task = AndThen(overload,
+                                 new ValueTask<int>(tcs.Task),
+                                 () => continued = true);
+                },
+                Throws.Nothing);
+    Assert.That(task!.IsCanceled,
+                Is.True);
+    Assert.That(() => task.GetAwaiter()
+                          .GetResult(),
+                Throws.InstanceOf<OperationCanceledException>()
+                      .And.Property(nameof(OperationCanceledException.CancellationToken))
+                      .EqualTo(CancellationToken.None));
+    Assert.That(continued,
+                Is.False);
+  }
+
+  /// <summary>
+  ///   Call the <paramref name="overload" /> of AndThen on <paramref name="source" />, with a continuation calling
+  ///   <paramref name="body" /> synchronously.
+  /// </summary>
+  private static Task AndThen(AndThenOverload overload,
+                              ValueTask<int>  source,
+                              Action          body)
+    => overload switch
+       {
+         AndThenOverload.UntypedAction => new ValueTask(source.AsTask()).AndThen(body)
+                                                                        .AsTask(),
+         AndThenOverload.UntypedFunc => new ValueTask(source.AsTask()).AndThen(() =>
+                                                                               {
+                                                                                 body();
+                                                                                 return 1;
+                                                                               })
+                                                                      .AsTask(),
+         AndThenOverload.UntypedAsyncAction => new ValueTask(source.AsTask()).AndThen(() =>
+                                                                                      {
+                                                                                        body();
+                                                                                        return new ValueTask();
+                                                                                      })
+                                                                             .AsTask(),
+         AndThenOverload.UntypedAsyncFunc => new ValueTask(source.AsTask()).AndThen(() =>
+                                                                                    {
+                                                                                      body();
+                                                                                      return new ValueTask<int>(1);
+                                                                                    })
+                                                                           .AsTask(),
+         AndThenOverload.TypedAction => source.AndThen(_ => body())
+                                              .AsTask(),
+         AndThenOverload.TypedFunc => source.AndThen(x =>
+                                                     {
+                                                       body();
+                                                       return x;
+                                                     })
+                                            .AsTask(),
+         AndThenOverload.TypedAsyncAction => source.AndThen(_ =>
+                                                            {
+                                                              body();
+                                                              return new ValueTask();
+                                                            })
+                                                   .AsTask(),
+         AndThenOverload.TypedAsyncFunc => source.AndThen(x =>
+                                                          {
+                                                            body();
+                                                            return new ValueTask<int>(x);
+                                                          })
+                                                 .AsTask(),
+         _ => throw new ArgumentOutOfRangeException(nameof(overload),
+                                                    overload,
+                                                    null),
+       };
 
   [Test]
   [AbortAfter(1000)]

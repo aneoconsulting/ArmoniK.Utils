@@ -61,7 +61,7 @@ public sealed class PoolPolicy<T>
     }
     catch (OperationCanceledException exception)
     {
-      return ValueTaskExt.FromCanceled<T>(exception.CancellationToken);
+      return ValueTaskExt.FromOperationCanceled<T>(exception);
     }
     catch (Exception exception)
     {
@@ -133,7 +133,7 @@ public sealed class PoolPolicy<T>
     }
     catch (OperationCanceledException exception)
     {
-      return ValueTaskExt.FromCanceled<bool>(exception.CancellationToken);
+      return ValueTaskExt.FromOperationCanceled<bool>(exception);
     }
     catch (Exception exception)
     {
