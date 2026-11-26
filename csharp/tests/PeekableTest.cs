@@ -722,6 +722,92 @@ public class PeekableTest
   }
 
   [Test]
+  public void SynchronousErrorsAreReturnedAsFailedTasks()
+  {
+    // Source failing synchronously on its first element
+    foreach (var operation in new Func<AsyncPeekable<int>, Task>[]
+                              {
+                                p => p.MoveNextAsync()
+                                      .AsTask(),
+                                p => p.PeekAsync()
+                                      .AsTask(),
+                                p => p.PeekAsync(3)
+                                      .AsTask(),
+                                p => p.TryPeekAsync()
+                                      .AsTask(),
+                              })
+    {
+      var peekable = new TrackedSource(5,
+                                       0)
+                     {
+                       Synchronous = true,
+                     }.AsPeekableAsync();
+      var task = CallWithoutThrowing(() => operation(peekable));
+      Assert.That(task.IsFaulted,
+                  Is.True);
+      Assert.That(task.Exception!.InnerException,
+                  Is.InstanceOf<ApplicationException>());
+    }
+
+    // Invalid argument
+    var negative = CallWithoutThrowing(() => new TrackedSource(5).AsPeekableAsync()
+                                                                 .PeekAsync(-1)
+                                                                 .AsTask());
+    Assert.That(negative.Exception!.InnerException,
+                Is.InstanceOf<ArgumentOutOfRangeException>());
+
+    // No more elements
+    var empty = CallWithoutThrowing(() => (null as IAsyncEnumerable<int>).AsPeekableAsync()
+                                                                         .PeekAsync()
+                                                                         .AsTask());
+    Assert.That(empty.Exception!.InnerException,
+                Is.InstanceOf<InvalidOperationException>());
+
+    // Failing disposal
+    var disposable = new TrackedSource(5)
+                     {
+                       Synchronous  = true,
+                       DisposeError = new ApplicationException("Dispose error"),
+                     }.AsPeekableAsync();
+    Assert.That(disposable.TryPeekAsync()
+                          .IsCompletedSuccessfully,
+                Is.True);
+    var dispose = CallWithoutThrowing(() => disposable.DisposeAsync()
+                                                      .AsTask());
+    Assert.That(dispose.Exception!.InnerException,
+                Is.InstanceOf<ApplicationException>());
+  }
+
+  [Test]
+  public void SynchronousCancellationIsReturnedAsCancelledTask()
+  {
+    // The exception token is not cancelled, which Task.FromCanceled would reject
+    var peekable = new TrackedSource(5,
+                                     0)
+                   {
+                     Synchronous = true,
+                     Error       = () => new OperationCanceledException(),
+                   }.AsPeekableAsync();
+
+    var task = CallWithoutThrowing(() => peekable.PeekAsync()
+                                                 .AsTask());
+    Assert.That(task.IsCanceled,
+                Is.True);
+  }
+
+  private static Task CallWithoutThrowing(Func<Task> call)
+  {
+    Task? task = null;
+    Assert.That(() =>
+                {
+                  task = call();
+                },
+                Throws.Nothing,
+                "The error should be reported through the returned task");
+    return task!;
+  }
+
+  [Test]
   public void SynchronousCompletion()
   {
     var source = new TrackedSource(5)
@@ -806,6 +892,16 @@ public class PeekableTest
     /// </summary>
     public bool Synchronous { get; init; }
 
+    /// <summary>
+    ///   Exception thrown at the index given at construction
+    /// </summary>
+    public Func<Exception> Error { get; init; } = () => new ApplicationException("Source error");
+
+    /// <summary>
+    ///   Exception thrown when disposing the enumerator, if any
+    /// </summary>
+    public Exception? DisposeError { get; init; }
+
     public int               GetEnumeratorCalls { get; private set; }
     public int               MoveNextCalls      { get; private set; }
     public int               DisposeCalls       { get; private set; }
@@ -874,7 +970,7 @@ public class PeekableTest
         source_.MoveNextCalls++;
         if (Current + 1 == source_.throwAt_)
         {
-          throw new ApplicationException("Source error");
+          throw source_.Error();
         }
 
         if (Current + 1 >= source_.n_)
@@ -893,7 +989,13 @@ public class PeekableTest
         => Current;
 
       public void Dispose()
-        => source_.DisposeCalls++;
+      {
+        source_.DisposeCalls++;
+        if (source_.DisposeError is not null)
+        {
+          throw source_.DisposeError;
+        }
+      }
     }
   }
 }

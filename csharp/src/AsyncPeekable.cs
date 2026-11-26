@@ -99,17 +99,24 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
       return ValueTaskExt.FromCanceled<bool>(enumerationCancellationToken_);
     }
 
-    if (buffer_.Count > 0)
+    try
     {
-      Current = buffer_.Dequeue();
-      return new ValueTask<bool>(true);
-    }
+      if (buffer_.Count > 0)
+      {
+        Current = buffer_.Dequeue();
+        return new ValueTask<bool>(true);
+      }
 
-    // Nothing has been peeked, read directly from the source without buffering
-    var moveNext = MoveSourceAsync();
-    return moveNext.TryGetSync(out var hasNext)
-             ? new ValueTask<bool>(SetCurrent(hasNext))
-             : Core(moveNext);
+      // Nothing has been peeked, read directly from the source without buffering
+      var moveNext = MoveSourceAsync();
+      return moveNext.TryGetSync(out var hasNext)
+               ? new ValueTask<bool>(SetCurrent(hasNext))
+               : Core(moveNext);
+    }
+    catch (Exception ex)
+    {
+      return new ValueTask<bool>(FailedTask<bool>(ex));
+    }
 
     async ValueTask<bool> Core(ValueTask<bool> pending)
       => SetCurrent(await pending.ConfigureAwait(false));
@@ -128,7 +135,14 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
     var enumerator = enumerator_;
     enumerator_ = null;
 
-    return enumerator?.DisposeAsync() ?? new ValueTask();
+    try
+    {
+      return enumerator?.DisposeAsync() ?? new ValueTask();
+    }
+    catch (Exception ex)
+    {
+      return new ValueTask(FailedTask<object?>(ex));
+    }
   }
 
   /// <summary>
@@ -156,10 +170,17 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
   /// <exception cref="InvalidOperationException">There are no more elements</exception>
   public ValueTask<T> PeekAsync()
   {
-    var fill = FillAsync(1);
-    return fill.TryGetSync(out var n)
-             ? new ValueTask<T>(PeekFirst(n))
-             : Core(fill);
+    try
+    {
+      var fill = FillAsync(1);
+      return fill.TryGetSync(out var n)
+               ? new ValueTask<T>(PeekFirst(n))
+               : Core(fill);
+    }
+    catch (Exception ex)
+    {
+      return new ValueTask<T>(FailedTask<T>(ex));
+    }
 
     async ValueTask<T> Core(ValueTask<int> pending)
       => PeekFirst(await pending.ConfigureAwait(false));
@@ -175,17 +196,24 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
   /// <exception cref="ArgumentOutOfRangeException"><paramref name="count" /> is negative</exception>
   public ValueTask<T[]> PeekAsync(int count)
   {
-    if (count < 0)
+    try
     {
-      throw new ArgumentOutOfRangeException(nameof(count),
-                                            count,
-                                            "Cannot peek a negative number of elements");
-    }
+      if (count < 0)
+      {
+        throw new ArgumentOutOfRangeException(nameof(count),
+                                              count,
+                                              "Cannot peek a negative number of elements");
+      }
 
-    var fill = FillAsync(count);
-    return fill.TryGetSync(out var n)
-             ? new ValueTask<T[]>(PeekMany(n))
-             : Core(fill);
+      var fill = FillAsync(count);
+      return fill.TryGetSync(out var n)
+               ? new ValueTask<T[]>(PeekMany(n))
+               : Core(fill);
+    }
+    catch (Exception ex)
+    {
+      return new ValueTask<T[]>(FailedTask<T[]>(ex));
+    }
 
     async ValueTask<T[]> Core(ValueTask<int> pending)
       => PeekMany(await pending.ConfigureAwait(false));
@@ -199,13 +227,35 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
   /// </returns>
   public ValueTask<(bool Success, T Value)> TryPeekAsync()
   {
-    var fill = FillAsync(1);
-    return fill.TryGetSync(out var n)
-             ? new ValueTask<(bool Success, T Value)>(TryPeekFirst(n))
-             : Core(fill);
+    try
+    {
+      var fill = FillAsync(1);
+      return fill.TryGetSync(out var n)
+               ? new ValueTask<(bool Success, T Value)>(TryPeekFirst(n))
+               : Core(fill);
+    }
+    catch (Exception ex)
+    {
+      return new ValueTask<(bool Success, T Value)>(FailedTask<(bool Success, T Value)>(ex));
+    }
 
     async ValueTask<(bool Success, T Value)> Core(ValueTask<int> pending)
       => TryPeekFirst(await pending.ConfigureAwait(false));
+  }
+
+  // Wrap an exception thrown synchronously into a failed task, as an async method would do:
+  // an OperationCanceledException gives a cancelled task, any other exception a faulted one.
+  // Unlike Task.FromCanceled, TrySetCanceled does not require the token to be cancelled.
+  private static Task<TResult> FailedTask<TResult>(Exception exception)
+  {
+    if (exception is OperationCanceledException canceled)
+    {
+      var tcs = new TaskCompletionSource<TResult>();
+      tcs.TrySetCanceled(canceled.CancellationToken);
+      return tcs.Task;
+    }
+
+    return Task.FromException<TResult>(exception);
   }
 
   private bool SetCurrent(bool hasNext)
