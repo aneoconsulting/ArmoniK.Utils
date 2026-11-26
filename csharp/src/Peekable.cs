@@ -17,6 +17,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 
 using JetBrains.Annotations;
 
@@ -51,11 +52,10 @@ namespace ArmoniK.Utils;
 [PublicAPI]
 public sealed class Peekable<T> : IEnumerable<T>, IEnumerator<T>
 {
-  private readonly List<T>         buffer_ = new();
+  private readonly Queue<T>        buffer_ = new();
   private          bool            completed_;
   private          T               current_ = default!;
   private          IEnumerator<T>? enumerator_;
-  private          int             head_;
   private          IEnumerable<T>? source_;
 
   /// <summary>
@@ -74,9 +74,6 @@ public sealed class Peekable<T> : IEnumerable<T>, IEnumerator<T>
   /// <param name="enumerator">Enumerator to wrap, it is disposed when the peekable is disposed</param>
   public Peekable(IEnumerator<T> enumerator)
     => enumerator_ = enumerator ?? throw new ArgumentNullException(nameof(enumerator));
-
-  private int Count
-    => buffer_.Count - head_;
 
   /// <inheritdoc cref="GetEnumerator" />
   IEnumerator<T> IEnumerable<T>.GetEnumerator()
@@ -98,27 +95,12 @@ public sealed class Peekable<T> : IEnumerable<T>, IEnumerator<T>
   public bool MoveNext()
   {
     // Fast path: nothing has been peeked, read directly from the source without buffering
-    if (Count == 0)
+    if (buffer_.Count == 0)
     {
       return TryMoveNext(out current_);
     }
 
-    current_       = buffer_[head_];
-    buffer_[head_] = default!; // Release the reference
-    head_++;
-
-    if (head_ == buffer_.Count)
-    {
-      buffer_.Clear();
-      head_ = 0;
-    }
-    else if (head_ >= 32 && 2 * head_ >= buffer_.Count)
-    {
-      buffer_.RemoveRange(0,
-                          head_);
-      head_ = 0;
-    }
-
+    current_ = buffer_.Dequeue();
     return true;
   }
 
@@ -138,7 +120,6 @@ public sealed class Peekable<T> : IEnumerable<T>, IEnumerator<T>
     current_   = default!;
     source_    = null;
     buffer_.Clear();
-    head_ = 0;
 
     var enumerator = enumerator_;
     enumerator_ = null;
@@ -183,15 +164,8 @@ public sealed class Peekable<T> : IEnumerable<T>, IEnumerator<T>
                                             "Cannot peek a negative number of elements");
     }
 
-    var n = Fill(count);
-    var result = n == 0
-                   ? Array.Empty<T>()
-                   : new T[n];
-    buffer_.CopyTo(head_,
-                   result,
-                   0,
-                   n);
-    return result;
+    return buffer_.Take(Fill(count))
+                  .ToArray();
   }
 
   /// <summary>
@@ -207,7 +181,7 @@ public sealed class Peekable<T> : IEnumerable<T>, IEnumerator<T>
       return false;
     }
 
-    value = buffer_[head_];
+    value = buffer_.Peek();
     return true;
   }
 
@@ -215,12 +189,12 @@ public sealed class Peekable<T> : IEnumerable<T>, IEnumerator<T>
   // Returns the number of buffered elements, capped to count.
   private int Fill(int count)
   {
-    while (Count < count && TryMoveNext(out var value))
+    while (buffer_.Count < count && TryMoveNext(out var value))
     {
-      buffer_.Add(value);
+      buffer_.Enqueue(value);
     }
 
-    return Math.Min(Count,
+    return Math.Min(buffer_.Count,
                     count);
   }
 

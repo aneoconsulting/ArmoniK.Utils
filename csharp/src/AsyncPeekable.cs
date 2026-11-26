@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -53,12 +54,11 @@ namespace ArmoniK.Utils;
 [PublicAPI]
 public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
 {
-  private readonly List<T>              buffer_ = new();
+  private readonly Queue<T>             buffer_ = new();
   private readonly CancellationToken    sourceCancellationToken_;
   private          bool                 completed_;
   private          CancellationToken    enumerationCancellationToken_;
   private          IAsyncEnumerator<T>? enumerator_;
-  private          int                  head_;
   private          IAsyncEnumerable<T>? source_;
 
   /// <summary>
@@ -84,9 +84,6 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
   public AsyncPeekable(IAsyncEnumerator<T> enumerator)
     => enumerator_ = enumerator ?? throw new ArgumentNullException(nameof(enumerator));
 
-  private int Count
-    => buffer_.Count - head_;
-
   /// <inheritdoc cref="GetAsyncEnumerator" />
   IAsyncEnumerator<T> IAsyncEnumerable<T>.GetAsyncEnumerator(CancellationToken cancellationToken)
     => GetAsyncEnumerator(cancellationToken);
@@ -100,7 +97,7 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
     enumerationCancellationToken_.ThrowIfCancellationRequested();
 
     // Fast path: nothing has been peeked, read directly from the source without buffering
-    if (Count == 0)
+    if (buffer_.Count == 0)
     {
       var (success, value) = await TryMoveNextAsync()
                                .ConfigureAwait(false);
@@ -108,22 +105,7 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
       return success;
     }
 
-    Current        = buffer_[head_];
-    buffer_[head_] = default!; // Release the reference
-    head_++;
-
-    if (head_ == buffer_.Count)
-    {
-      buffer_.Clear();
-      head_ = 0;
-    }
-    else if (head_ >= 32 && 2 * head_ >= buffer_.Count)
-    {
-      buffer_.RemoveRange(0,
-                          head_);
-      head_ = 0;
-    }
-
+    Current = buffer_.Dequeue();
     return true;
   }
 
@@ -136,7 +118,6 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
     Current    = default!;
     source_    = null;
     buffer_.Clear();
-    head_ = 0;
 
     var enumerator = enumerator_;
     enumerator_ = null;
@@ -203,14 +184,8 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
     {
       var n = await FillAsync(count)
                 .ConfigureAwait(false);
-      var result = n == 0
-                     ? Array.Empty<T>()
-                     : new T[n];
-      buffer_.CopyTo(head_,
-                     result,
-                     0,
-                     n);
-      return result;
+      return buffer_.Take(n)
+                    .ToArray();
     }
   }
 
@@ -228,14 +203,14 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
       return (false, default!);
     }
 
-    return (true, buffer_[head_]);
+    return (true, buffer_.Peek());
   }
 
   // Buffer elements until there are at least count of them or the source is exhausted.
   // Returns the number of buffered elements, capped to count.
   private async ValueTask<int> FillAsync(int count)
   {
-    while (Count < count)
+    while (buffer_.Count < count)
     {
       var (success, value) = await TryMoveNextAsync()
                                .ConfigureAwait(false);
@@ -244,10 +219,10 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
         break;
       }
 
-      buffer_.Add(value);
+      buffer_.Enqueue(value);
     }
 
-    return Math.Min(Count,
+    return Math.Min(buffer_.Count,
                     count);
   }
 
