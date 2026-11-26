@@ -94,7 +94,10 @@ public sealed class AsyncPeekable<T> : IAsyncEnumerable<T>, IAsyncEnumerator<T>
   /// <inheritdoc />
   public ValueTask<bool> MoveNextAsync()
   {
-    enumerationCancellationToken_.ThrowIfCancellationRequested();
+    if (enumerationCancellationToken_.IsCancellationRequested)
+    {
+      return ValueTaskExt.FromCanceled<bool>(enumerationCancellationToken_);
+    }
 
     if (buffer_.Count > 0)
     {

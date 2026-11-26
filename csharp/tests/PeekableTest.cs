@@ -697,6 +697,31 @@ public class PeekableTest
   }
 
   [Test]
+  public void MoveNextCancelledReturnsCancelledTask()
+  {
+    var source = new TrackedSource(5)
+                 {
+                   Synchronous = true,
+                 };
+    var       peekable = source.AsPeekableAsync();
+    using var cts      = new CancellationTokenSource();
+    cts.Cancel();
+
+    ValueTask<bool> moveNext = default;
+    Assert.That(() =>
+                {
+                  moveNext = peekable.GetAsyncEnumerator(cts.Token)
+                                     .MoveNextAsync();
+                },
+                Throws.Nothing,
+                "Cancellation should be reported through the returned task");
+    Assert.That(moveNext.IsCanceled,
+                Is.True);
+    Assert.That(source.MoveNextCalls,
+                Is.Zero);
+  }
+
+  [Test]
   public void SynchronousCompletion()
   {
     var source = new TrackedSource(5)
