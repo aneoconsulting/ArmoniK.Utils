@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -195,6 +196,11 @@ public sealed class PoolPolicy<T>
     => SetValidateAcquireInternal(validate)
       .SetValidateReleaseInternal(validate);
 
+  // The overloads whose delegate takes a CancellationToken have a higher overload resolution priority.
+  // A method group having both forms would otherwise be ambiguous between them.
+  // It resolves to the form with token, so that the pool can cancel its calls.
+  // Compilers older than C# 13 ignore the priority and still report the ambiguity.
+
   /// <inheritdoc cref="SetCreateInternal" />
   [PublicAPI]
   public PoolPolicy<T> SetCreate(Func<T> create)
@@ -207,6 +213,7 @@ public sealed class PoolPolicy<T>
 
   /// <inheritdoc cref="SetCreateInternal" />
   [PublicAPI]
+  [OverloadResolutionPriority(1)]
   public PoolPolicy<T> SetCreate(Func<CancellationToken, ValueTask<T>> create)
     => SetCreateInternal(create);
 
@@ -227,6 +234,7 @@ public sealed class PoolPolicy<T>
 
   /// <inheritdoc cref="SetValidateAcquireInternal" />
   [PublicAPI]
+  [OverloadResolutionPriority(1)]
   public PoolPolicy<T> SetValidateAcquire(Func<T, CancellationToken, ValueTask<bool>>? validate)
     => SetValidateAcquireInternal(validate);
 
@@ -237,6 +245,7 @@ public sealed class PoolPolicy<T>
 
   /// <inheritdoc cref="SetValidateAcquireInternal" />
   [PublicAPI]
+  [OverloadResolutionPriority(1)]
   public PoolPolicy<T> SetValidateAcquire(Func<T, Exception?, CancellationToken, ValueTask<bool>>? validate)
     => SetValidateAcquireInternal(validate);
 
@@ -257,6 +266,7 @@ public sealed class PoolPolicy<T>
 
   /// <inheritdoc cref="SetValidateReleaseInternal" />
   [PublicAPI]
+  [OverloadResolutionPriority(1)]
   public PoolPolicy<T> SetValidateRelease(Func<T, CancellationToken, ValueTask<bool>>? validate)
     => SetValidateReleaseInternal(validate);
 
@@ -267,6 +277,7 @@ public sealed class PoolPolicy<T>
 
   /// <inheritdoc cref="SetValidateReleaseInternal" />
   [PublicAPI]
+  [OverloadResolutionPriority(1)]
   public PoolPolicy<T> SetValidateRelease(Func<T, Exception?, CancellationToken, ValueTask<bool>>? validate)
     => SetValidateReleaseInternal(validate);
 
@@ -287,6 +298,7 @@ public sealed class PoolPolicy<T>
 
   /// <inheritdoc cref="SetValidateInternal" />
   [PublicAPI]
+  [OverloadResolutionPriority(1)]
   public PoolPolicy<T> SetValidate(Func<T, CancellationToken, ValueTask<bool>>? validate)
     => SetValidateInternal(validate);
 
@@ -297,6 +309,7 @@ public sealed class PoolPolicy<T>
 
   /// <inheritdoc cref="SetValidateInternal" />
   [PublicAPI]
+  [OverloadResolutionPriority(1)]
   public PoolPolicy<T> SetValidate(Func<T, Exception?, CancellationToken, ValueTask<bool>>? validate)
     => SetValidateInternal(validate);
 }

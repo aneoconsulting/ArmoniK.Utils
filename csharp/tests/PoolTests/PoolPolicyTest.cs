@@ -42,6 +42,13 @@ public class PoolPolicyTest
     ThrowAsync,
   }
 
+  public enum ValidateSetter
+  {
+    Acquire,
+    Release,
+    Both,
+  }
+
   public enum ValidateType
   {
     Sync,
@@ -312,6 +319,80 @@ public class PoolPolicyTest
                 Is.EqualTo(n ?? -1));
   }
 
+  [Test]
+  [AbortAfter(1000)]
+  public async Task CreateMethodGroupWithAndWithoutToken([Values] bool useAsync)
+  {
+    // A method group having a form with and a form without token must compile, and call the form with token
+    var f      = new OverloadedFunc();
+    var policy = new PoolPolicy<int>();
+
+    _ = useAsync
+          ? policy.SetCreate(f.CreateAsync)
+          : policy.SetCreate(f.Create);
+
+    using var cts = new CancellationTokenSource();
+
+    Assert.That(await policy.CreateAsync(cts.Token)
+                            .ConfigureAwait(false),
+                Is.EqualTo(1));
+    Assert.That(f.WithToken,
+                Is.EqualTo(1));
+    Assert.That(f.WithoutToken,
+                Is.Zero);
+    Assert.That(f.Token,
+                Is.EqualTo(cts.Token));
+  }
+
+  [Test]
+  [AbortAfter(1000)]
+  public async Task ValidateMethodGroupWithAndWithoutToken([Values] ValidateSetter setter,
+                                                           [Values] bool           useAsync,
+                                                           [Values] bool           withException)
+  {
+    // A method group having a form with and a form without token must compile, and call the form with token
+    var f      = new OverloadedFunc();
+    var policy = new PoolPolicy<int>();
+
+    _ = (setter, useAsync, withException) switch
+        {
+          (ValidateSetter.Acquire, false, false) => policy.SetValidateAcquire(f.Validate),
+          (ValidateSetter.Acquire, false, true)  => policy.SetValidateAcquire(f.ValidateException),
+          (ValidateSetter.Acquire, true, false)  => policy.SetValidateAcquire(f.ValidateAsync),
+          (ValidateSetter.Acquire, true, true)   => policy.SetValidateAcquire(f.ValidateExceptionAsync),
+          (ValidateSetter.Release, false, false) => policy.SetValidateRelease(f.Validate),
+          (ValidateSetter.Release, false, true)  => policy.SetValidateRelease(f.ValidateException),
+          (ValidateSetter.Release, true, false)  => policy.SetValidateRelease(f.ValidateAsync),
+          (ValidateSetter.Release, true, true)   => policy.SetValidateRelease(f.ValidateExceptionAsync),
+          (ValidateSetter.Both, false, false)    => policy.SetValidate(f.Validate),
+          (ValidateSetter.Both, false, true)     => policy.SetValidate(f.ValidateException),
+          (ValidateSetter.Both, true, false)     => policy.SetValidate(f.ValidateAsync),
+          (ValidateSetter.Both, true, true)      => policy.SetValidate(f.ValidateExceptionAsync),
+          _                                      => throw new ArgumentOutOfRangeException(nameof(setter)),
+        };
+
+    using var cts = new CancellationTokenSource();
+
+    Assert.That(await policy.ValidateAcquireAsync(0,
+                                                  cts.Token)
+                            .ConfigureAwait(false),
+                Is.True);
+    Assert.That(await policy.ValidateReleaseAsync(0,
+                                                  null,
+                                                  cts.Token)
+                            .ConfigureAwait(false),
+                Is.True);
+
+    Assert.That(f.WithToken,
+                Is.EqualTo(setter is ValidateSetter.Both
+                             ? 2
+                             : 1));
+    Assert.That(f.WithoutToken,
+                Is.Zero);
+    Assert.That(f.Token,
+                Is.EqualTo(cts.Token));
+  }
+
   private void ValidateAcquireImpl(PoolPolicy<bool> policy,
                                    ValidateType     validateType,
                                    ThrowType        throwType)
@@ -452,6 +533,92 @@ public class PoolPolicyTest
 
 
       return value;
+    }
+  }
+
+  /// <summary>
+  ///   Methods having a form with and a form without token
+  /// </summary>
+  private sealed class OverloadedFunc
+  {
+    public CancellationToken Token;
+    public int               WithToken;
+    public int               WithoutToken;
+
+    public int Create()
+    {
+      WithoutToken++;
+      return 1;
+    }
+
+    public ValueTask<int> Create(CancellationToken cancellationToken)
+      => WithTokenAsync(1,
+                        cancellationToken);
+
+    public ValueTask<int> CreateAsync()
+    {
+      WithoutToken++;
+      return new ValueTask<int>(1);
+    }
+
+    public ValueTask<int> CreateAsync(CancellationToken cancellationToken)
+      => WithTokenAsync(1,
+                        cancellationToken);
+
+    public bool Validate(int x)
+    {
+      WithoutToken++;
+      return true;
+    }
+
+    public ValueTask<bool> Validate(int               x,
+                                    CancellationToken cancellationToken)
+      => WithTokenAsync(true,
+                        cancellationToken);
+
+    public ValueTask<bool> ValidateAsync(int x)
+    {
+      WithoutToken++;
+      return new ValueTask<bool>(true);
+    }
+
+    public ValueTask<bool> ValidateAsync(int               x,
+                                         CancellationToken cancellationToken)
+      => WithTokenAsync(true,
+                        cancellationToken);
+
+    public bool ValidateException(int        x,
+                                  Exception? e)
+    {
+      WithoutToken++;
+      return true;
+    }
+
+    public ValueTask<bool> ValidateException(int               x,
+                                             Exception?        e,
+                                             CancellationToken cancellationToken)
+      => WithTokenAsync(true,
+                        cancellationToken);
+
+    public ValueTask<bool> ValidateExceptionAsync(int        x,
+                                                  Exception? e)
+    {
+      WithoutToken++;
+      return new ValueTask<bool>(true);
+    }
+
+    public ValueTask<bool> ValidateExceptionAsync(int               x,
+                                                  Exception?        e,
+                                                  CancellationToken cancellationToken)
+      => WithTokenAsync(true,
+                        cancellationToken);
+
+    private ValueTask<TResult> WithTokenAsync<TResult>(TResult           result,
+                                                       CancellationToken cancellationToken)
+    {
+      WithToken++;
+      Token = cancellationToken;
+      return new ValueTask<TResult>(result);
     }
   }
 }
