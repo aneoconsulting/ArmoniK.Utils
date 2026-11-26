@@ -288,4 +288,56 @@ public static class EnumerableExt
                 .WaitSync();
     }
   }
+
+  /// <summary>
+  ///   Wrap an enumerable so that upcoming elements can be peeked at without being consumed.
+  /// </summary>
+  /// <remarks>
+  ///   The source is enumerated at most once. The result is its own enumerator: enumerating it consumes the elements,
+  ///   and disposing it (as <c>foreach</c> does) releases the source. See <see cref="Peekable{T}" /> for details.
+  /// </remarks>
+  /// <param name="source">Elements to enumerate, <c>null</c> is treated as empty</param>
+  /// <typeparam name="T">Type of the elements</typeparam>
+  /// <returns>A <see cref="Peekable{T}" /> that must be disposed</returns>
+  [PublicAPI]
+  public static Peekable<T> AsPeekable<T>(this IEnumerable<T>? source)
+    => new(source);
+
+  /// <summary>
+  ///   Wrap an enumerator so that upcoming elements can be peeked at without being consumed.
+  /// </summary>
+  /// <param name="enumerator">Enumerator to wrap, it will be disposed when the result is disposed</param>
+  /// <typeparam name="T">Type of the elements</typeparam>
+  /// <returns>A <see cref="Peekable{T}" /> that must be disposed</returns>
+  [PublicAPI]
+  public static Peekable<T> AsPeekable<T>(this IEnumerator<T> enumerator)
+    => new(enumerator);
+
+  /// <summary>
+  ///   Wrap an async enumerable so that upcoming elements can be peeked at without being consumed.
+  /// </summary>
+  /// <remarks>
+  ///   The source is enumerated at most once. The result is its own enumerator: enumerating it consumes the elements,
+  ///   and disposing it (as <c>await foreach</c> does) releases the source. See <see cref="AsyncPeekable{T}" /> for
+  ///   details.
+  /// </remarks>
+  /// <param name="source">Elements to enumerate, <c>null</c> is treated as empty</param>
+  /// <param name="cancellationToken">Token given to the underlying enumerator of <paramref name="source" /></param>
+  /// <typeparam name="T">Type of the elements</typeparam>
+  /// <returns>An <see cref="AsyncPeekable{T}" /> that must be disposed</returns>
+  [PublicAPI]
+  public static AsyncPeekable<T> AsPeekableAsync<T>(this IAsyncEnumerable<T>? source,
+                                                    CancellationToken         cancellationToken = default)
+    => new(source,
+           cancellationToken);
+
+  /// <summary>
+  ///   Wrap an async enumerator so that upcoming elements can be peeked at without being consumed.
+  /// </summary>
+  /// <param name="enumerator">Enumerator to wrap, it will be disposed when the result is disposed</param>
+  /// <typeparam name="T">Type of the elements</typeparam>
+  /// <returns>An <see cref="AsyncPeekable{T}" /> that must be disposed</returns>
+  [PublicAPI]
+  public static AsyncPeekable<T> AsPeekableAsync<T>(this IAsyncEnumerator<T> enumerator)
+    => new(enumerator);
 }
